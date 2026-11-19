@@ -51,3 +51,18 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 
 ## Cost observation
 - One GPT-4.1 sample run used about 494k tokens (about $1). Scraped pages (up to 12k characters each) accumulate in agent context across iterations. Candidates to reduce cost: lower `MAX_SCRAPE_CHARS`, `max_iter`, or a cheaper model for the review step. To revisit after the core is shipped.
+
+## Frontend (Phase 4)
+- Next.js 16.4 (App Router, Turbopack, React 19.3), Tailwind CSS v4 via the `@tailwindcss/turbopack` loader, `output: "standalone"`.
+- shadcn/ui is used the way shadcn intends: components copied into `src/components/ui` (Button with `cva` + Radix `Slot`, Card, Badge, Skeleton). `components.json` is present so `npx shadcn add …` works later.
+- **Design:** Fraunces (display serif) + Geist (UI) + Geist Mono (activity feed and labels); warm ink/paper neutrals, a single saffron accent; light and dark via `next-themes` (class strategy) and CSS variables. Every text/background token pair is AA (≥4.5:1), checked by Lighthouse.
+- **Data fetching:** the browser talks to the API directly (`NEXT_PUBLIC_API_BASE`; empty = same origin behind Caddy in production). No API keys ever reach the browser; the only public value is the optional Turnstile site key.
+- **Live run:** `useRunEvents` wraps EventSource. It de-duplicates by `seq`, sorts, reconnects with exponential backoff and jitter, and resumes with `?after=<lastSeq>` (EventSource can't set `Last-Event-ID` on a new connection).
+- **Report:** react-markdown + remark-gfm with custom renderers. `[n]` becomes a citation chip that scrolls to and highlights the source. Sources render from structured API data so anchors are guaranteed. Competitor table scrolls horizontally with a sticky first column. The Recharts price-vs-differentiation scatter uses greedy label placement to avoid overprinting.
+- **Validation:** react-hook-form + `zod/mini` (Zod 4's tree-shakable build; the full `zod` import put a 162 KB chunk on the landing page via link prefetch).
+- **Performance work, measured with Lighthouse (simulated slow-4G mobile):** 75 → 92–93. Changes: CSS animation instead of Framer Motion on the landing page; Fraunces without the opsz/SOFT axes (121 KB → 37 KB); Geist Mono not preloaded; `experimental.inlineCss`; `zod/mini`. Accessibility, Best Practices and SEO are 100. Remaining: simulated LCP ~3.2s, mostly framework JS. To be re-measured on the Linux deploy (Phase 8).
+- **Local Lighthouse caveat:** on this Windows machine, Chrome's proxy auto-detection (WPAD) added ~20–28s to time-to-first-byte inside Lighthouse's browser and wrecked Speed Index. Run local audits with `--chrome-flags="--no-proxy-server"`.
+- **Design review fixes from Playwright screenshots** (390px and 1440px, light and dark): header overflow at 390px (compact "New" button on phones); sample-card badge collision; long recommended price broke the offer card (split into headline price + qualifier); chart labels overprinting; empty-looking "running" history cards; source titles losing closing brackets (backend parser bug, fixed with tests); activity feed lines now name the site read ("Read sniffy.in · 12k characters").
+
+## Data-quality follow-ups
+- In markets where businesses sell only through Swiggy/Zomato, menu prices are rendered by JavaScript and invisible to `ScrapeWebsiteTool`. Coimbatore millet meals: 1 of 5 competitors priced. Pune pet grooming, where businesses publish price lists: 4 of 5 priced. Next step: a headless-browser scrape tool (Playwright) for aggregator menu pages, behind a flag.
