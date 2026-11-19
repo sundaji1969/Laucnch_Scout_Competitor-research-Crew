@@ -31,3 +31,10 @@ def test_tool_descriptions() -> None:
     assert summarise_tool_result("Read website content", "SCRAPE FAILED for x. blah").startswith(
         "SCRAPE FAILED"
     )
+
+
+def test_scrape_summary_names_site() -> None:
+    msg = summarise_tool_result(
+        "Read website content", "x" * 12015, {"website_url": "https://www.sniffy.in/p"}
+    )
+    assert msg == "Read sniffy.in · 12k characters"

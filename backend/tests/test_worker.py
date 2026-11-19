@@ -124,3 +124,20 @@ async def test_timeout_kills_child(ctx: dict[str, Any], monkeypatch: pytest.Monk
     run = await _run()
     assert run.status is RunStatus.failed
     assert run.error and "longer than" in run.error
+
+
+@pytest.mark.parametrize(
+    ("line", "title", "url"),
+    [
+        (
+            "Millet Life (Zomato) - https://www.zomato.com/x",
+            "Millet Life (Zomato)",
+            "https://www.zomato.com/x",
+        ),
+        ("[Sniffy](https://sniffy.in/a)", "Sniffy", "https://sniffy.in/a"),
+        ("Justdial: Mealzy (https://jd.com/m)", "Justdial: Mealzy", "https://jd.com/m"),
+        ("https://only.example/u", "", "https://only.example/u"),
+    ],
+)
+def test_parse_source_line(line: str, title: str, url: str) -> None:
+    assert jobs._parse_source_line(line) == (title, url)

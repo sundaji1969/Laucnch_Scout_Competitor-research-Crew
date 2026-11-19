@@ -65,7 +65,7 @@ def describe_tool_call(tool_name: str, tool_args: Any) -> str:
     return f"Using {tool_name}"
 
 
-def summarise_tool_result(tool_name: str, output: Any) -> str:
+def summarise_tool_result(tool_name: str, output: Any, tool_args: Any = None) -> str:
     text = output if isinstance(output, str) else json.dumps(output, default=str)[:20000]
     name = tool_name.lower()
     if text.startswith(("SEARCH FAILED", "SCRAPE FAILED")):
@@ -77,7 +77,9 @@ def summarise_tool_result(tool_name: str, output: Any) -> str:
             return "No results"
         return f"{len(urls)} results · " + ", ".join(domains[:4])
     if "scrape" in name or "website" in name:
-        return f"Read {len(text):,} characters"
+        url = str(_args(tool_args).get("website_url") or "")
+        size = f"{len(text) / 1000:.0f}k characters" if len(text) >= 1000 else f"{len(text)} characters"
+        return f"Read {_domain(url)} · {size}" if url else f"Read {size}"
     if "file" in name and "writ" in name:
         return "Report saved" if not text.lower().startswith(("error", "an error")) else text[:160]
     return text[:140]
@@ -193,7 +195,7 @@ def crew_progress(
                     run_id,
                     agent=key,
                     tool=event.tool_name,
-                    message=summarise_tool_result(event.tool_name, event.output),
+                    message=summarise_tool_result(event.tool_name, event.output, event.tool_args),
                 )
             )
 

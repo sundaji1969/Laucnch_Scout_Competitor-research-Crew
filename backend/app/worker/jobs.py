@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,12 +33,15 @@ CHILD_CMD = [sys.executable, "-m", "app.worker.child"]
 
 
 def _parse_source_line(text: str) -> tuple[str, str]:
-    import re
-
+    """'Millet Life (Zomato) - https://x' -> ('Millet Life (Zomato)', 'https://x'); handles [t](url)."""
+    md = re.match(r"^\s*\[([^\]]+)\]\((https?://[^)\s]+)\)", text)
+    if md:
+        return md.group(1).strip(), md.group(2)
     m = re.search(r"https?://[^\s)>\]]+", text)
     url = m.group(0) if m else ""
-    title = text.replace(url, "").strip(" -–—:()[]<>") if url else text
-    return title, url
+    title = text.replace(url, "") if url else text
+    title = re.sub(r"[<(\[]\s*[>)\]]", "", title)  # empty brackets left around a removed URL
+    return title.strip(" -–—:<>"), url
 
 
 def apply_result(run: Run, result: dict[str, Any]) -> None:
