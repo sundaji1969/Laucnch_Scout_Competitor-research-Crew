@@ -14,13 +14,14 @@ _BRACES = re.compile(r"[{}]")  # CrewAI uses {var} interpolation; never let user
 MAX_COMPETITORS = 8
 
 
-def clean_text(value: str, max_len: int) -> str:
+def clean_text(value: str, max_len: int | None = None) -> str:
+    """Normalise and strip markup/placeholders. Length is enforced by the field, not truncated."""
     value = unicodedata.normalize("NFKC", value)
     value = _CONTROL.sub(" ", value)
     value = _TAGS.sub(" ", value)
     value = _BRACES.sub("", value)
     value = re.sub(r"\s+", " ", value).strip()
-    return value[:max_len]
+    return value[:max_len] if max_len is not None else value
 
 
 class RunInputs(BaseModel):
@@ -29,15 +30,11 @@ class RunInputs(BaseModel):
     target_customer: str = Field(..., min_length=2, max_length=300)
     known_competitors: list[str] = Field(default_factory=list, max_length=MAX_COMPETITORS)
 
-    @field_validator("business_idea", "target_customer", mode="before")
+    @field_validator("business_idea", "target_customer", "city", mode="before")
     @classmethod
-    def _clean_long(cls, v: object) -> str:
-        return clean_text(str(v), 300)
-
-    @field_validator("city", mode="before")
-    @classmethod
-    def _clean_city(cls, v: object) -> str:
-        return clean_text(str(v), 80)
+    def _clean(cls, v: object) -> object:
+        # Non-strings (e.g. null) fall through to pydantic's own type error.
+        return clean_text(v) if isinstance(v, str) else v
 
     @field_validator("known_competitors", mode="before")
     @classmethod

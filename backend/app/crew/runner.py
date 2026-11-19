@@ -12,9 +12,13 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 from typing import Any
 
+from pydantic import BaseModel
+
 from app.config import Settings, get_settings
+from app.crew import provenance
 from app.crew.inputs import RunInputs
 from app.crew.progress import AGENT_KEYS, Emit, crew_progress, make_event
+from app.crew.schemas import CompetitorList, ReviewInsights, StrategyMatrix
 from app.services.report_validator import ReportValidationError, validate_report
 
 log = logging.getLogger("launchscout.runner")
@@ -31,6 +35,9 @@ class RunResult:
     sources: dict[int, str]
     duration_seconds: float
     token_usage: dict[str, Any] = field(default_factory=dict)
+    search_calls: int = 0
+    llm_model: str = ""
+    errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -51,10 +58,20 @@ def _noop(_: dict[str, Any]) -> None:
 
 
 def _structured_outputs(tasks_output: list[Any]) -> dict[str, Any]:
-    keys = ["competitors", "reviews", "strategy"]
+    models: list[tuple[str, type[BaseModel]]] = [
+        ("competitors", CompetitorList),
+        ("reviews", ReviewInsights),
+        ("strategy", StrategyMatrix),
+    ]
     out: dict[str, Any] = {}
-    for key, t in zip(keys, tasks_output, strict=False):
+    for (key, model), t in zip(models, tasks_output, strict=False):
         pyd = getattr(t, "pydantic", None)
+        if pyd is None:  # fall back to parsing the raw JSON answer
+            raw = str(getattr(t, "raw", "") or "")
+            try:
+                pyd = model.model_validate_json(raw[raw.find("{") : raw.rfind("}") + 1])
+            except ValueError:
+                log.warning("structured_output_unparsed", extra={"task": key})
         out[key] = pyd.model_dump(mode="json") if pyd is not None else None
     return out
 
@@ -65,6 +82,7 @@ def run_crew(
     emit: Emit | None = None,
     settings: Settings | None = None,
     crew_factory: Callable[[Settings], Any] | None = None,
+    track_provenance: bool = True,
 ) -> RunResult:
     """Execute a full run. Raises ``ReportValidationError`` if the final report fails validation."""
     settings = settings or get_settings()
@@ -85,10 +103,13 @@ def run_crew(
     id_to_key = {str(a.id): k for a, k in zip(crew.agents, AGENT_KEYS, strict=False)}
     crew_inputs = inputs.as_crew_inputs(run_id, out_dir.as_posix(), date.today().isoformat())
 
+    if track_provenance:
+        provenance.start()
     try:
         with crew_progress(run_id, emit, role_to_key, id_to_key):
             output = crew.kickoff(inputs=crew_inputs)
     except Exception as exc:
+        provenance.stop()
         emit(make_event("run_failed", run_id, message=f"Crew failed: {type(exc).__name__}: {exc}"[:500]))
         raise
 
@@ -107,7 +128,17 @@ def run_crew(
     if usage_obj is not None and hasattr(usage_obj, "model_dump"):
         token_usage = usage_obj.model_dump()
 
-    validation = validate_report(markdown)
+    tracking = provenance.is_active()
+    validation = validate_report(
+        markdown,
+        is_known_url=provenance.was_seen if tracking else None,
+        unverified_price=provenance.unverified_price if tracking else None,
+    )
+    if tracking:
+        (out_dir / "evidence.json").write_text(
+            json.dumps(provenance.evidence(), ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+    provenance.stop()
     duration = time.monotonic() - started
     result = RunResult(
         run_id=run_id,
@@ -117,6 +148,9 @@ def run_crew(
         sources=validation.sources,
         duration_seconds=round(duration, 1),
         token_usage=token_usage,
+        search_calls=provenance.search_calls(),
+        llm_model=settings.llm_model,
+        errors=validation.errors,
     )
     (out_dir / "result.json").write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
 

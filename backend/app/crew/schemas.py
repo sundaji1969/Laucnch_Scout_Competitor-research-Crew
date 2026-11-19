@@ -7,9 +7,18 @@ as the page that was checked is cited.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from typing import Annotated
+
+from pydantic import BaseModel, Field, WithJsonSchema, field_validator
+from pydantic import HttpUrl as _HttpUrl
 
 NOT_LISTED = "Not publicly listed"
+
+# Validated as a real http(s) URL at runtime, but advertised to the LLM as a plain string:
+# OpenAI structured outputs reject JSON-schema `format: uri`.
+HttpUrl = Annotated[
+    _HttpUrl, WithJsonSchema({"type": "string", "description": "Full http(s) URL copied from a tool result"})
+]
 
 
 class Competitor(BaseModel):

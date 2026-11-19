@@ -79,13 +79,26 @@ def summarise_tool_result(tool_name: str, output: Any) -> str:
     if "scrape" in name or "website" in name:
         return f"Read {len(text):,} characters"
     if "file" in name and "writ" in name:
-        return "Report saved"
+        return "Report saved" if not text.lower().startswith(("error", "an error")) else text[:160]
     return text[:140]
+
+
+_MODEL_FOR_AGENT: dict[str, type[Any]] = {
+    "market_researcher": CompetitorList,
+    "review_analyst": ReviewInsights,
+    "strategy_analyst": StrategyMatrix,
+}
 
 
 def summarise_task_output(agent_key: str, output: Any) -> tuple[str, dict[str, Any]]:
     """Human summary + small structured payload for a finished task."""
     pyd = getattr(output, "pydantic", None)
+    if pyd is None and agent_key in _MODEL_FOR_AGENT:
+        raw = str(getattr(output, "raw", "") or "")
+        try:
+            pyd = _MODEL_FOR_AGENT[agent_key].model_validate_json(raw[raw.find("{") : raw.rfind("}") + 1])
+        except ValueError:
+            pyd = None
     if isinstance(pyd, CompetitorList):
         names = [c.name for c in pyd.competitors]
         return f"Found {len(names)} competitors: {', '.join(names)}", {"competitors": names}

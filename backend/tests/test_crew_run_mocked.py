@@ -23,7 +23,12 @@ def test_end_to_end_mocked(settings: Any) -> None:
     events: list[dict[str, Any]] = []
     llm = ScriptedLLM(research_outputs=[TOO_FEW, COMPETITORS])  # guardrail must reject first try
     result = run_crew(
-        INPUTS, run_id="test1", emit=events.append, settings=settings, crew_factory=_factory(llm)
+        INPUTS,
+        run_id="test1",
+        emit=events.append,
+        settings=settings,
+        crew_factory=_factory(llm),
+        track_provenance=False,
     )
 
     report = (settings.outputs_path / "test1" / "report.md").read_text("utf-8")
@@ -46,6 +51,13 @@ def test_invalid_report_fails_run(settings: Any) -> None:
     events: list[dict[str, Any]] = []
     llm = ScriptedLLM(report="# Report\n\n## 1. Key Competitors\nnothing here")
     with pytest.raises(ReportValidationError):
-        run_crew(INPUTS, run_id="test2", emit=events.append, settings=settings, crew_factory=_factory(llm))
+        run_crew(
+            INPUTS,
+            run_id="test2",
+            emit=events.append,
+            settings=settings,
+            crew_factory=_factory(llm),
+            track_provenance=False,
+        )
     assert events[-1]["type"] == "run_failed"
     assert "Missing section" in events[-1]["message"]

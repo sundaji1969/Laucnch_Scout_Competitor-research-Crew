@@ -15,11 +15,20 @@ market_research_task:
     2. Pick 3 to 5 REAL businesses that operate in or deliver to {city} and sell something
        a {target_customer} would compare with "{business_idea}". Prefer direct competitors;
        use close substitutes only if fewer than 3 direct ones exist.
-    3. For each one, open its website or listing page to find the price per unit (per meal,
-       box, session, item...), current offers or subscription plans, and sales channels.
+    3. For each one, work hard to find a real price per unit (per meal, box, session, item):
+       open its website menu / pricing / plans page; search "<name> {city} price",
+       "<name> menu" and "<name> subscription"; check Swiggy, Zomato, Justdial and Magicpin
+       results, whose search snippets often show menu prices or "cost for two". If you only
+       find a plan price (e.g. ₹2,400 per 20-meal plan) or "cost for two", report it exactly
+       as written, stating the unit, and add the per-unit figure only if the page states the
+       plan size. Also record current offers or subscription plans and sales channels.
+       Prefer competitors whose prices you can verify over ones with no visible pricing.
     4. Record the exact URL(s) where you found each fact in source_urls.
 
-    Rules: never invent a business, price or offer. If no price is visible, set
+    Rules: you MUST use the search tool at least 3 times before answering; never answer
+    from memory. Every URL in source_urls must be copied exactly from a search result or a
+    page you scraped (a guardrail checks this and rejects unseen URLs).
+    Never invent a business, price or offer. If no price is visible, set
     price_per_unit to "Not publicly listed", price_value to null, and still include the page
     you checked in source_urls. If a tool fails, try another query or source.
   expected_output: >
@@ -40,7 +49,9 @@ review_analysis_task:
     Then group the complaints into common pain points across the market, tagging each
     pain point with the competitors it applies to.
 
-    Rules: paraphrase faithfully, do not invent reviews or ratings. Every like, complaint
+    Rules: use the search and scrape tools; never answer from memory. Copy every source
+    URL exactly from a tool result (a guardrail rejects URLs that never appeared in one).
+    Paraphrase faithfully, do not invent reviews or ratings. Every like, complaint
     and pain point needs at least one source URL. If a competitor has no reviews you can
     find, leave its likes/complaints empty and list the pages you checked in
     review_sources_checked.
@@ -85,11 +96,14 @@ report_task:
     Build ONE numbered source list from every URL used in the research. Every price and
     every factual claim in the report must carry a citation like [1] or [2][5] that points
     to that list. Do not cite a number that is not in the Sources list, and do not add facts
-    that are not in the research.
+    that are not in the research. Use ONLY URLs that appear in the research outputs
+    (source_urls / review_sources_checked), copied exactly; never add other links.
 
     The report must have EXACTLY these six level-2 headings, in this order, with this text:
     "## 1. Key Competitors", "## 2. What Customers Complain About", "## 3. Market Gap",
     "## 4. Recommended Positioning", "## 5. 30-Day Launch Plan", "## 6. Sources".
+
+    End the report with the Sources list: no notes, disclaimers or comments after it.
 
     When the report is complete, save it with the file writer tool: filename "report.md",
     directory "{output_dir}", overwrite "true", content = the full markdown report.

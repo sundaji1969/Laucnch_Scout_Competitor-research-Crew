@@ -7,10 +7,13 @@ other queries or sources, so one bad page never crashes the run.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 from crewai_tools import ScrapeWebsiteTool, SerperDevTool
+
+from app.crew import provenance
 
 log = logging.getLogger("launchscout.tools")
 
@@ -21,14 +24,17 @@ class SafeSerperDevTool(SerperDevTool):  # type: ignore[misc]
     """SerperDevTool that never raises."""
 
     def _run(self, **kwargs: Any) -> Any:
+        provenance.record_search()
         try:
-            return super()._run(**kwargs)
+            result = super()._run(**kwargs)
         except Exception as exc:  # noqa: BLE001 - deliberate: tools must not crash the crew
             log.warning("serper_failed", extra={"error": str(exc)[:300], "query": str(kwargs)[:200]})
             return (
                 f"SEARCH FAILED ({type(exc).__name__}: {str(exc)[:200]}). "
                 "Try a different query or continue with the sources you already have."
             )
+        provenance.record_text(_as_text(result), kind="search", ref=str(kwargs.get("search_query", "")))
+        return result
 
 
 class SafeScrapeWebsiteTool(ScrapeWebsiteTool):  # type: ignore[misc]
@@ -45,9 +51,21 @@ class SafeScrapeWebsiteTool(ScrapeWebsiteTool):  # type: ignore[misc]
                 "Use the search result snippet for this page or try another source."
             )
         text = str(text)
+        provenance.record_url(str(url or ""), text[:MAX_SCRAPE_CHARS])
         if len(text) > MAX_SCRAPE_CHARS:
             text = text[:MAX_SCRAPE_CHARS] + "\n...[truncated]"
         return text
+
+
+def _as_text(result: Any) -> str:
+    if isinstance(result, str):
+        return result
+    if hasattr(result, "model_dump"):
+        result = result.model_dump()
+    try:
+        return json.dumps(result, default=str)
+    except (TypeError, ValueError):
+        return str(result)
 
 
 def search_tool(country: str = "in", locale: str = "en", n_results: int = 10) -> SafeSerperDevTool:

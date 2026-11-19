@@ -9,7 +9,7 @@ from crewai.project import CrewBase, agent, crew, task
 from crewai_tools import FileWriterTool
 
 from app.config import Settings, get_settings
-from app.crew.guardrails import competitor_list_guardrail
+from app.crew.guardrails import competitor_list_guardrail, review_insights_guardrail
 from app.crew.schemas import CompetitorList, ReviewInsights, StrategyMatrix
 from app.crew.tools.safe_tools import scrape_tool, search_tool
 
@@ -76,7 +76,8 @@ class LaunchScoutCrew:
     def report_writer(self) -> Agent:
         return Agent(
             config=self.agents_config["report_writer"],  # type: ignore[index]
-            tools=[FileWriterTool()],
+            # sandboxed to the outputs directory: the agent cannot write anywhere else
+            tools=[FileWriterTool(base_dir=str(self.settings.outputs_path.resolve()))],
             llm=self.llm,
             allow_delegation=False,
             verbose=self.settings.crew_verbose,
@@ -97,6 +98,8 @@ class LaunchScoutCrew:
         return Task(
             config=self.tasks_config["review_analysis_task"],  # type: ignore[index]
             output_pydantic=ReviewInsights,
+            guardrail=review_insights_guardrail,
+            guardrail_max_retries=self.settings.guardrail_max_retries,
         )
 
     @task

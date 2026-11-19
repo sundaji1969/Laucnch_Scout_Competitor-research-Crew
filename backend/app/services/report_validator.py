@@ -11,6 +11,7 @@ Rules (from the product spec):
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 REQUIRED_SECTIONS: list[tuple[str, str]] = [
@@ -102,7 +103,13 @@ def _table_rows(body: str) -> list[list[str]]:
     return rows
 
 
-def validate_report(markdown: str, min_competitors: int = 3) -> ValidationResult:
+def validate_report(
+    markdown: str,
+    min_competitors: int = 3,
+    is_known_url: Callable[[str], bool] | None = None,
+    unverified_price: Callable[[str, str, list[str]], list[str]] | None = None,
+) -> ValidationResult:
+    """Validate a report. ``is_known_url`` (optional) rejects sources never seen in a tool result."""
     errors: list[str] = []
     sections = split_sections(markdown)
 
@@ -114,8 +121,11 @@ def validate_report(markdown: str, min_competitors: int = 3) -> ValidationResult
     if "sources" in sections and not sources:
         errors.append("Sources section has no numbered entries")
     for n, text in sources.items():
-        if not _URL_RE.search(text):
+        m = _URL_RE.search(text)
+        if not m:
             errors.append(f"Source [{n}] has no http(s) URL")
+        elif is_known_url is not None and not is_known_url(m.group(0)):
+            errors.append(f"Source [{n}] ({m.group(0)}) never appeared in any search or scrape result")
 
     body_without_sources = markdown
     if "sources" in sections:
@@ -139,6 +149,16 @@ def validate_report(markdown: str, min_competitors: int = 3) -> ValidationResult
             name = r[0] if r else "?"
             if price_idx is None or price_idx >= len(r) or not r[price_idx]:
                 errors.append(f"Competitor '{name}' has no price cell")
+            elif unverified_price is not None:
+                cited = [int(c) for c in _CITATION_RE.findall(" ".join(r))]
+                urls = [m.group(0) for n in cited if (m := _URL_RE.search(sources.get(n, "")))]
+                nums = unverified_price(name, _CITATION_RE.sub("", r[price_idx]), urls)
+                if nums:
+                    errors.append(
+                        f"Competitor '{name}' price ({', '.join(nums)}) could not be traced to "
+                        "that competitor"
+                        " in the sources checked"
+                    )
             if not _CITATION_RE.search(" ".join(r)):
                 errors.append(f"Competitor '{name}' row has no [n] citation")
         if price_idx is None:
