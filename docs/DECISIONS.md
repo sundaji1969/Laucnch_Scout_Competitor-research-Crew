@@ -66,3 +66,17 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 
 ## Data-quality follow-ups
 - In markets where businesses sell only through Swiggy/Zomato, menu prices are rendered by JavaScript and invisible to `ScrapeWebsiteTool`. Coimbatore millet meals: 1 of 5 competitors priced. Pune pet grooming, where businesses publish price lists: 4 of 5 priced. Next step: a headless-browser scrape tool (Playwright) for aggregator menu pages, behind a flag.
+
+## Docker (Phase 5)
+- **Backend:** one image for API and worker (`docker-entrypoint.sh api|worker`). Multi-stage: build venv → `python:3.12-slim` runtime with Pango/HarfBuzz for WeasyPrint. Non-root uid 10001. 2.09 GB, mostly CrewAI's transitive ML deps (lancedb, onnxruntime, pyarrow).
+- The API container runs `alembic upgrade head` before starting uvicorn. The worker never migrates, which avoids concurrent migrations.
+- **Frontend:** Next.js standalone on `node:24-alpine`, non-root, 309 MB. `NEXT_PUBLIC_*` values are build args, public by design.
+- **Healthchecks:** API `GET /api/health`, which checks the DB and Redis; frontend `GET /`; worker checks the arq process with `pgrep` (it has no HTTP port).
+- **Local compose:** API on `127.0.0.1:8010`, web on `127.0.0.1:3000`; Postgres and Redis are not published. **Prod override:** `ports: !reset []` on everything except Caddy (80, 443 and 443/udp). Named volumes for Postgres, Redis, reports and Caddy data.
+- **Caddy:** the SSE route (`/api/runs/{id}/events`) is matched first with `flush_interval -1`, no compression and no read timeout, so events are never buffered. Everything else gets zstd/gzip.
+- **Verified locally with `docker compose up --build`:** all services healthy; the sample input ran end to end (60 SSE events, none missing); PDF rendered by WeasyPrint in the container (4 pages, branded cover, clickable citations); Markdown download with all 6 sections.
+- The PDF headings fall back to DejaVu Serif inside the container (Fraunces isn't installed system-wide). Acceptable; bundling the font file is a possible polish later.
+
+## CI/CD (Phase 6)
+- `ci.yml`: backend ruff + format check + mypy strict + pytest (live tests excluded); frontend typegen + tsc + eslint + build; both Docker images built with the GHA cache.
+- `deploy.yml`: runs on push to `main` only when the repo variable `DEPLOY_ENABLED=true`, so the first push doesn't fail before the VPS exists. It SSHes as `VPS_USER`, runs `git reset --hard origin/main` and `compose up -d --build`, then polls `https://$DOMAIN/api/health`. Uses secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` and the variable `DOMAIN`.

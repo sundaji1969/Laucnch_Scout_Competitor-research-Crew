@@ -1,0 +1,56 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-24.04
+    environment: production
+    # Skip until the VPS secrets exist (first push happens before the server is ready).
+    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
+    steps:
+      - name: Configure SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 15 -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Pull and restart on the server
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$VPS_USER@$VPS_HOST" 'bash -s' <<'EOF'
+          set -euo pipefail
+          cd ~/launchscout
+          git fetch --prune origin main
+          git reset --hard origin/main
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans
+          docker image prune -f >/dev/null
+          EOF
+
+      - name: Health check
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "https://$DOMAIN/api/health"; then echo; echo "healthy"; exit 0; fi
+            sleep 10
+          done
+          echo "health check failed" >&2
+          exit 1

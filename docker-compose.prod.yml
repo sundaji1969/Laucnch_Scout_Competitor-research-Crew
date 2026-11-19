@@ -1,0 +1,54 @@
+# Production override:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Adds Caddy (automatic HTTPS) in front; only ports 80/443 are published.
+# Postgres, Redis, API and frontend are reachable only on the internal network.
+
+services:
+  postgres:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    environment:
+      TRUST_PROXY_HEADERS: "true"
+      FORWARDED_ALLOW_IPS: "*"   # only Caddy can reach this container
+      CORS_ORIGINS: https://${DOMAIN}
+      LOG_JSON: "true"
+      API_WORKERS: "2"
+
+  worker:
+    environment:
+      LOG_JSON: "true"
+
+  frontend:
+    ports: !reset []
+    build:
+      args:
+        NEXT_PUBLIC_API_BASE: ""                 # same origin: Caddy routes /api to the backend
+        NEXT_PUBLIC_SITE_URL: https://${DOMAIN}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+
+  caddy:
+    image: caddy:2.10-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

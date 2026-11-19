@@ -1,0 +1,85 @@
+# Local development stack: docker compose up --build
+# Frontend http://localhost:3000 · API http://localhost:8010/api/docs
+name: launchscout
+
+x-backend: &backend
+  build:
+    context: ./backend
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-launchscout}:${POSTGRES_PASSWORD:-launchscout}@postgres:5432/${POSTGRES_DB:-launchscout}
+    REDIS_URL: redis://redis:6379/0
+    OUTPUTS_DIR: /app/outputs
+  volumes:
+    - reports:/app/outputs
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-launchscout}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-launchscout}
+      POSTGRES_DB: ${POSTGRES_DB:-launchscout}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    <<: *backend
+    image: launchscout-backend:local
+    command: ["api"]
+    ports:
+      - "127.0.0.1:8010:8000"
+
+  worker:
+    <<: *backend
+    image: launchscout-backend:local
+    command: ["worker"]
+    healthcheck:
+      # the worker has no HTTP port; check that the arq process is alive
+      test: ["CMD-SHELL", "pgrep -f 'arq app.worker' >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8010}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+    image: launchscout-frontend:local
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  reports:
