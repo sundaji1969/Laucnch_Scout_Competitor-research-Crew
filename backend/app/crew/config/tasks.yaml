@@ -1,0 +1,127 @@
+market_research_task:
+  description: >
+    Research the competitive landscape for this business idea.
+
+    Business idea: {business_idea}
+    City: {city}
+    Target customer: {target_customer}
+    Known competitors (verify these first if given, they may be wrong): {known_competitors}
+    Today's date: {today}
+
+    Steps:
+    1. Run several web searches (for example "{business_idea} {city}", the category plus
+       "near me {city}", "best ... in {city}", plus Swiggy, Zomato, Justdial and Instagram
+       variants).
+    2. Pick 3 to 5 REAL businesses that operate in or deliver to {city} and sell something
+       a {target_customer} would compare with "{business_idea}". Prefer direct competitors;
+       use close substitutes only if fewer than 3 direct ones exist.
+    3. For each one, open its website or listing page to find the price per unit (per meal,
+       box, session, item...), current offers or subscription plans, and sales channels.
+    4. Record the exact URL(s) where you found each fact in source_urls.
+
+    Rules: never invent a business, price or offer. If no price is visible, set
+    price_per_unit to "Not publicly listed", price_value to null, and still include the page
+    you checked in source_urls. If a tool fails, try another query or source.
+  expected_output: >
+    A JSON object matching the CompetitorList schema: business_idea, city, a "competitors"
+    array with 3 to 5 items (each with name, website, price_per_unit as a string with
+    currency and unit such as "₹149 per meal" or "Not publicly listed", price_value as a
+    number or null, currency, offers[], sales_channels[], notes, and source_urls[] with at
+    least one real http(s) URL), and search_queries_used[].
+  agent: market_researcher
+
+review_analysis_task:
+  description: >
+    For each competitor in the market research, find what customers like and complain
+    about. Search for reviews on Google Maps, Swiggy, Zomato, Justdial, Instagram,
+    Reddit, Quora and blogs (for example "<competitor> {city} reviews",
+    "<competitor> zomato", "<competitor> complaints"). Open the pages and read the reviews.
+
+    Then group the complaints into common pain points across the market, tagging each
+    pain point with the competitors it applies to.
+
+    Rules: paraphrase faithfully, do not invent reviews or ratings. Every like, complaint
+    and pain point needs at least one source URL. If a competitor has no reviews you can
+    find, leave its likes/complaints empty and list the pages you checked in
+    review_sources_checked.
+  expected_output: >
+    A JSON object matching the ReviewInsights schema: "reviews" (one entry per competitor
+    with competitor, rating_summary, likes[{text, source_urls}],
+    complaints[{text, source_urls}], review_sources_checked[]) and "common_pain_points"
+    (3 to 6 items, each with pain_point, competitors[] and source_urls[]).
+  agent: review_analyst
+  context:
+    - market_research_task
+
+strategy_task:
+  description: >
+    Using ONLY the market research and review analysis, build the strategy for launching
+    "{business_idea}" in {city} for {target_customer}.
+
+    1. Build a comparison matrix with one row per competitor: price, main channel, key
+       strength, key weakness, a differentiation score from 1 (commodity) to 10 (highly
+       differentiated), and the source URLs backing that row.
+    2. Identify the SINGLE clearest market gap: a need of {target_customer} that the
+       complaints show nobody serves well today. List the evidence.
+    3. Recommend a one-line offer and a specific price (with currency and unit), justified
+       against the competitor price points. Note the main risks.
+
+    Do not introduce any competitor, price or review that is not in the research.
+  expected_output: >
+    A JSON object matching the StrategyMatrix schema: matrix[] (competitor, price_per_unit,
+    price_value, channel, strength, weakness, differentiation_score 1-10, source_urls[]),
+    market_gap, gap_evidence[], recommended_offer (one line), recommended_price,
+    recommended_price_value, positioning_rationale, risks[].
+  agent: strategy_analyst
+  context:
+    - market_research_task
+    - review_analysis_task
+
+report_task:
+  description: >
+    Write the final competitor report for a founder launching "{business_idea}" in {city}
+    for {target_customer}, using the research, reviews and strategy above.
+
+    Build ONE numbered source list from every URL used in the research. Every price and
+    every factual claim in the report must carry a citation like [1] or [2][5] that points
+    to that list. Do not cite a number that is not in the Sources list, and do not add facts
+    that are not in the research.
+
+    The report must have EXACTLY these six level-2 headings, in this order, with this text:
+    "## 1. Key Competitors", "## 2. What Customers Complain About", "## 3. Market Gap",
+    "## 4. Recommended Positioning", "## 5. 30-Day Launch Plan", "## 6. Sources".
+
+    When the report is complete, save it with the file writer tool: filename "report.md",
+    directory "{output_dir}", overwrite "true", content = the full markdown report.
+    Then return the same full markdown report as your final answer.
+  expected_output: >
+    A markdown document that starts with "# Competitor Report: {business_idea} in {city}",
+    then a 2-3 sentence summary, then exactly these sections:
+
+    ## 1. Key Competitors
+    A markdown table with columns | Competitor | Price/unit | Channel | Strength | Weakness | Source |
+    one row per competitor (at least 3). The Price/unit cell holds the real price or
+    "Not publicly listed", and the Source cell holds citations like [1][2].
+
+    ## 2. What Customers Complain About
+    A bullet list of pain points; each bullet ends with the competitors it applies to in
+    bold (e.g. **Applies to:** A, B) and citations [n].
+
+    ## 3. Market Gap
+    One short paragraph naming the single opportunity nobody serves well today, with
+    citations for the evidence.
+
+    ## 4. Recommended Positioning
+    A one-line offer in bold that includes the price, followed by 2-4 bullets of rationale
+    with citations.
+
+    ## 5. 30-Day Launch Plan
+    Four subsections "### Week 1" to "### Week 4", each with 3-5 concrete actions.
+
+    ## 6. Sources
+    A numbered list "1. Title or site - https://full.url" containing every cited URL.
+  agent: report_writer
+  context:
+    - market_research_task
+    - review_analysis_task
+    - strategy_task

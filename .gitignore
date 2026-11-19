@@ -35,3 +35,7 @@ Thumbs.db
 
 # Screenshots from local design review
 frontend/screenshots/
+
+# Build brief (kept local)
+LAUNCHSCOUT_PROMPT.md
+LaunchScout_ClaudeCode_Prompt.docx
