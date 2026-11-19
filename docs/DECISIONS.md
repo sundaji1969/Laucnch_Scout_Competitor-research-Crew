@@ -25,3 +25,29 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 
 ## Job execution (planned for Phase 3)
 - CrewAI's event bus is process-global. The worker therefore runs each crew in its own **subprocess**, which isolates progress events per run and lets `RUN_TIMEOUT_SECONDS` be enforced by killing the process.
+
+## Data integrity: provenance enforcement (added after the first live run)
+- **Finding:** in the first live run GPT-4.1 answered task 1 *without calling any tool*: five plausible competitors produced from memory. With tools attached, CrewAI leaves tool use up to the model, so prompts alone cannot guarantee "no invented competitors".
+- **Fix:** `app/crew/provenance.py` records every URL and all text returned by Serper and the scraper during a run.
+  - Task-1 and task-2 guardrails reject source URLs that never appeared in a tool result, and task 1 requires at least 3 searches.
+  - Prices: every number in a competitor's price must appear on a page cited for that competitor, or within 400 characters of the competitor's name in a tool result. Matching "anywhere in the corpus" was tried first and rejected: common numbers (180, 200) matched by coincidence.
+  - An unverifiable price is rejected once with specific feedback. If it is still unverifiable, it is downgraded to "Not publicly listed" with a note, which is the spec's own rule, rather than failing the run.
+  - The post-run validator applies the URL and price rules to the final report's Sources and Key Competitors table.
+  - The full tool output is saved to `outputs/<run_id>/evidence.json` for audit.
+- `HttpUrl` fields advertise `{"type":"string"}` in the JSON schema (still validated as http(s) URLs), because OpenAI structured outputs reject `format: uri`.
+- A guardrail that passes returns the original `TaskOutput`, and CrewAI then keeps `.pydantic=None`. The guardrails attach the parsed model, and the runner also re-parses raw JSON as a fallback.
+- `FileWriterTool(base_dir=OUTPUTS_DIR)` sandboxes the Report Writer to the outputs directory.
+
+## API / worker (Phase 3)
+- arq (async, Redis-backed). `max_jobs = MAX_CONCURRENT_RUNS`; the API also returns 503 when more than `3 × MAX_CONCURRENT_RUNS` runs are queued or running.
+- Each run executes in its own subprocess (`app.worker.child`), killed after `RUN_TIMEOUT_SECONDS`.
+- The child publishes progress events. The **parent** publishes the terminal `run_completed`/`run_failed` event only after the database row is committed, so the UI never finds a "completed" run without its report.
+- Events carry a per-run `seq`. They are stored in a capped Redis list (24h TTL) for replay and published on pub/sub for live delivery.
+- **Bug found in live testing:** CrewAI fires tool events from parallel threads, which stored events out of order, and SSE dropped events numbered lower than the last one sent. Fixed with a publisher lock and exact-set de-duplication in SSE; covered by regression tests.
+- SSE honours `Last-Event-ID` (and `?after=` for clients that can't set headers). Every 30s of silence it checks the database as a safety net, in case a worker died without publishing a terminal event.
+- Rate limiting uses `limits` (moving window) on Redis via redis-py (`implementation="redispy"`), keyed by a salted hash of the client IP. Raw IPs are never stored.
+- PDF: markdown-it → HTML template (cover page, clickable `[n]` citations linked to anchored sources) → WeasyPrint. WeasyPrint needs Pango, so the actual render test runs in Docker/CI and is skipped on Windows.
+- Local dev API port is 8010 because port 8000 is used by other software on the dev machine.
+
+## Cost observation
+- One GPT-4.1 sample run used about 494k tokens (about $1). Scraped pages (up to 12k characters each) accumulate in agent context across iterations. Candidates to reduce cost: lower `MAX_SCRAPE_CHARS`, `max_iter`, or a cheaper model for the review step. To revisit after the core is shipped.
