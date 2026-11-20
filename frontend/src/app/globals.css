@@ -1,5 +1,25 @@
 @import "tailwindcss";
 
+/* Metric-matched fallbacks for the self-hosted fonts (values from next/font/google, measured at
+   the regular weight). next/font/local would measure the files' default instance instead, which
+   for Fraunces is weight 900, and the wider fallback would shift the layout when the font loads. */
+@font-face {
+  font-family: "Geist Fallback";
+  src: local("Arial");
+  ascent-override: 95.94%;
+  descent-override: 28.16%;
+  line-gap-override: 0%;
+  size-adjust: 104.76%;
+}
+@font-face {
+  font-family: "Fraunces Fallback";
+  src: local("Times New Roman");
+  ascent-override: 84.71%;
+  descent-override: 22.09%;
+  line-gap-override: 0%;
+  size-adjust: 115.45%;
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ------------------------------------------------------------------

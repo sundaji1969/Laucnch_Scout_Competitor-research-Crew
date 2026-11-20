@@ -105,6 +105,13 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 - The LCP element is the hero `<h1>`. Server response is 50 ms; most of the mobile LCP (about 2.2 s) is render delay from framework JavaScript and the display font. Unused JavaScript was about 60 KB.
 - Trimmed: 34 KB of it was the `/scout` form's code (Zod, react-hook-form, captcha), prefetched because the header and hero `<Link href="/scout">` were on screen. `IntentLink` turns off viewport prefetch and prefetches on hover, focus or touch instead. After: scripts 188 → 154 KB, unused JS 60 → 27 KB (the rest is inside `react-dom`, not removable), mobile LCP 2.8 → 2.6 s, mobile Performance 95 / 95 / 96, desktop 100.
 
+## Font loading
+- From Google Fonts, ₹ (U+20B9) is in each family's latin-ext file, so any page showing a rupee price (the landing sample card, every report) also downloaded Geist latin-ext (16 KB) and Fraunces latin-ext (33 KB), discovered late through CSS and fetched at high priority, for that one glyph.
+- Geist and Fraunces are now self-hosted with `next/font/local`, one file each: exactly the characters of Google's latin subset plus ₹, cut from Google's own files with fontTools (layout features, `gvar`/`HVAR` kept). Geist 28.7 KB, Fraunces 36.2 KB, both preloaded.
+- Checked against Google's files: Geist outlines identical at weights 100/400/900; Fraunces differs by at most 0.36 font units of 2000 at weight 600 (rounding in weight interpolation). The landing page renders the same (60 of 1.3M pixels differ, by at most 11/255).
+- Fallback faces keep next/font/google's metric overrides (in `globals.css`). next/font/local would measure the file's default instance, which for Fraunces is weight 900, and the wider fallback would shift the layout on swap.
+- Trade-off: characters outside latin + ₹ (for example some accented letters in competitor names) render in the system fallback font. Geist Mono still comes from next/font/google (latin only, not preloaded).
+
 ## Known follow-ups
 - Aggregator-only markets (Swiggy/Zomato) still yield few prices; a Playwright scrape tool behind a flag remains the plan.
 - Stretch goals not started: hierarchical process (flag exists, `PROCESS_MODE=hierarchical`), Pitch Deck agent, weekly re-run.

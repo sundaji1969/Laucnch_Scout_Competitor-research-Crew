@@ -1,14 +1,34 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 import { ThemeProvider } from "@/components/theme";
 import "./globals.css";
 
-const geist = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" });
+// Geist and Fraunces are self-hosted as one file each: Google's "latin" subset plus ₹ (U+20B9).
+// From Google Fonts, ₹ lives in the latin-ext files, so every page showing a rupee price also
+// downloaded Geist and Fraunces latin-ext (49 KB) late, at high priority, for that one glyph.
+// Same variable wght axis and outlines as Google's files (see docs/DECISIONS.md, "Font loading").
+// Characters outside this set (e.g. some accented letters) fall back to the system font.
+const geist = localFont({
+  src: "./fonts/geist-latin-inr.woff2",
+  weight: "100 900",
+  variable: "--font-geist",
+  display: "swap",
+  adjustFontFallback: false,
+  fallback: ["Geist Fallback", "Arial", "sans-serif"],
+});
 // Mono is only used for small labels: don't let it compete with critical resources.
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono", display: "swap", preload: false });
 // Weight axis only: the opsz/SOFT axes tripled the file size (121 KB) for little visible gain.
-const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces", display: "swap" });
+const fraunces = localFont({
+  src: "./fonts/fraunces-latin-inr.woff2",
+  weight: "100 900",
+  variable: "--font-fraunces",
+  display: "swap",
+  adjustFontFallback: false,
+  fallback: ["Fraunces Fallback", "Times New Roman", "serif"],
+});
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
