@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -81,10 +82,8 @@ class SafeSerperDevTool(SerperDevTool):  # type: ignore[misc]
         text = _as_text(result)
         provenance.record_text(text, kind="search", ref=query)
         if cache is not None:
-            try:
+            with contextlib.suppress(Exception):  # cache is optional
                 cache.setex(key, self.cache_ttl, text)
-            except Exception:  # noqa: BLE001
-                pass
         return result
 
 
