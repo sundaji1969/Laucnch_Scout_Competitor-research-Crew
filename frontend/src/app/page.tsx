@@ -9,6 +9,7 @@ import {
   Target,
 } from "lucide-react";
 import Link from "next/link";
+import { IntentLink } from "@/components/intent-link";
 import { SAMPLE } from "@/components/landing/sample";
 import { Button } from "@/components/ui/button";
 import { Badge, Card } from "@/components/ui/primitives";
@@ -49,9 +50,9 @@ export default function Home() {
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button asChild size="lg">
-                <Link href="/scout">
+                <IntentLink href="/scout">
                   Start your research <ArrowRight aria-hidden />
-                </Link>
+                </IntentLink>
               </Button>
               <Button asChild variant="outline" size="lg">
                 <Link href="#sample">See a sample report</Link>
@@ -133,9 +134,9 @@ export default function Home() {
             checked. Every source must have been seen in a real search or page read during the run.
           </p>
           <Button asChild className="mt-8">
-            <Link href="/scout">
+            <IntentLink href="/scout">
               Research my idea <ArrowRight aria-hidden />
-            </Link>
+            </IntentLink>
           </Button>
         </div>
         <SampleGapCard />

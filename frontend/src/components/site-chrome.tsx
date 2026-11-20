@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import Link from "next/link";
+import { IntentLink } from "@/components/intent-link";
 import { ThemeToggle } from "@/components/theme";
 import { Button } from "@/components/ui/button";
 
@@ -36,11 +37,11 @@ export function SiteHeader() {
           </Button>
           <ThemeToggle />
           <Button asChild size="sm" className="ml-1">
-            <Link href="/scout" aria-label="New research">
+            <IntentLink href="/scout" aria-label="New research">
               <Plus aria-hidden className="sm:hidden" />
               <span className="sm:hidden">New</span>
               <span className="hidden sm:inline">New research</span>
-            </Link>
+            </IntentLink>
           </Button>
         </nav>
       </div>
