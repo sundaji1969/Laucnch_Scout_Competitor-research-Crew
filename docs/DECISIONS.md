@@ -110,6 +110,7 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 - Geist and Fraunces are now self-hosted with `next/font/local`, one file each: exactly the characters of Google's latin subset plus ₹, cut from Google's own files with fontTools (layout features, `gvar`/`HVAR` kept). Geist 28.7 KB, Fraunces 36.2 KB, both preloaded.
 - Checked against Google's files: Geist outlines identical at weights 100/400/900; Fraunces differs by at most 0.36 font units of 2000 at weight 600 (rounding in weight interpolation). The landing page renders the same (60 of 1.3M pixels differ, by at most 11/255).
 - Fallback faces keep next/font/google's metric overrides (in `globals.css`). next/font/local would measure the file's default instance, which for Fraunces is weight 900, and the wider fallback would shift the layout on swap.
+- Result on the live site (Lighthouse 12.8.2, landing page): fonts 5 files / 136 KB → 3 files / 86 KB; mobile LCP 2.6 → 2.3-2.4 s; mobile Performance over five runs 92 / 98 / 97 / 98 / 98 (the 92 had a TBT spike to 280 ms, unrelated to fonts); CLS still 0; desktop 100.
 - Trade-off: characters outside latin + ₹ (for example some accented letters in competitor names) render in the system fallback font. Geist Mono still comes from next/font/google (latin only, not preloaded).
 
 ## Known follow-ups
