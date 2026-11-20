@@ -99,7 +99,11 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 - The Strategy Analyst leaves `price_value` empty when a price is a range ("₹200-₹400 per meal"), so the chart used to drop those competitors and the caption wrongly called them unpriced. `frontend/src/lib/price.ts` now reads currency-marked amounts back out of the price text when `price_value` is empty: a range plots at its midpoint with a horizontal bar, and a single amount plots as-is. Only amounts with ₹/Rs/INR/$ count, so "500 ml" is never read as a price. Done in the frontend so existing reports are fixed without re-running them.
 - Frontend unit tests use Node's built-in runner (`npm test`, Node 24 runs TypeScript directly), and CI runs them.
 
+## Lighthouse on the live site (20 Nov 2026, Lighthouse 12.8.2, landing page)
+- Mobile (simulated slow 4G), three runs: Performance 94 / 96 / 95; Accessibility, Best Practices, SEO 100. FCP 1.4 s, LCP 2.8 s, TBT 90-130 ms, CLS 0.
+- Desktop: 100 in all four categories. LCP 0.5 s.
+- The LCP element is the hero `<h1>`. Server response is 50 ms; most of the mobile LCP (about 2.2 s) is render delay from framework JavaScript and the display font. Remaining opportunity: about 60 KB of unused JavaScript.
+
 ## Known follow-ups
 - Aggregator-only markets (Swiggy/Zomato) still yield few prices; a Playwright scrape tool behind a flag remains the plan.
-- Lighthouse not yet re-measured on the live Linux deploy.
 - Stretch goals not started: hierarchical process (flag exists, `PROCESS_MODE=hierarchical`), Pitch Deck agent, weekly re-run.
