@@ -153,7 +153,7 @@ export function PriceChart({ strategy }: { strategy: Strategy }) {
               }}
             >
               {hasRange && (
-                <ErrorBar dataKey="range" direction="x" width={6} strokeWidth={2} stroke="var(--chart-2)" strokeOpacity={0.55} />
+                <ErrorBar dataKey="range" direction="x" isAnimationActive={false} width={6} strokeWidth={2} stroke="var(--chart-2)" strokeOpacity={0.55} />
               )}
             </Scatter>
           </ScatterChart>
