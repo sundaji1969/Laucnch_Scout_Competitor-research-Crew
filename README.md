@@ -102,7 +102,7 @@ Every variable is documented inline in [`.env.example`](.env.example). The ones 
 | `POSTGRES_PASSWORD` | Change it from the default in production |
 | `DOMAIN`, `TRAEFIK_NETWORK`, `TRAEFIK_CERTRESOLVER`, `TRAEFIK_ENTRYPOINT` | Production only (see Deploy) |
 
-Useful knobs: `LLM_MODEL_RESEARCH` (a cheaper model for agents 1 and 2), `SCRAPE_MAX_CHARS`, `AGENT_MAX_ITER`, `SEARCH_CACHE_TTL_SECONDS`, `DAILY_RUN_CAP` (all visitors, per UTC day, default 30), `REUSE_WINDOW_DAYS` (serve a recent identical report, default 7), `RATE_LIMIT_RUNS` (per IP, default `3/day`), `MAX_CONCURRENT_RUNS`, `RUN_TIMEOUT_SECONDS`, `TURNSTILE_ENABLED` (Cloudflare captcha on the form).
+Useful knobs: `PROCESS_MODE` (`sequential`, or `hierarchical` for a Research Director manager agent that delegates each step and checks the work; costs more per run), `LLM_MODEL_RESEARCH` (a cheaper model for agents 1 and 2), `SCRAPE_MAX_CHARS`, `AGENT_MAX_ITER`, `SEARCH_CACHE_TTL_SECONDS`, `DAILY_RUN_CAP` (all visitors, per UTC day, default 30), `REUSE_WINDOW_DAYS` (serve a recent identical report, default 7), `RATE_LIMIT_RUNS` (per IP, default `3/day`), `MAX_CONCURRENT_RUNS`, `RUN_TIMEOUT_SECONDS`, `TURNSTILE_ENABLED` (Cloudflare captcha on the form).
 
 API keys stay on the server. The browser only ever sees `NEXT_PUBLIC_*` values, which are public by design.
 

@@ -82,4 +82,24 @@ def test_context_chain(settings: Any) -> None:
 
 def test_hierarchical_flag(settings: Any) -> None:
     settings.process_mode = "hierarchical"
-    assert _crew(settings).process == Process.hierarchical
+    crew = _crew(settings)
+    assert crew.process == Process.hierarchical
+    manager = crew.manager_agent
+    # A named manager with its own role, goal and backstory, not CrewAI's generic one
+    assert manager.role.strip().startswith("Research Director")
+    assert "never change, add or round" in manager.backstory
+    assert manager.allow_delegation is True
+    assert manager.tools == []  # CrewAI gives it delegation tools; it must have none of its own
+    assert manager not in crew.agents
+    # Tasks keep their specialist, so the director can only delegate each task to its owner
+    assert [t.agent.role for t in crew.tasks] == [a.role for a in crew.agents]
+    # ...and carry no tools, or the director would search and scrape itself instead of delegating
+    assert [t.tools for t in crew.tasks] == [[], [], [], []]
+    assert "LocalPriceTool" in {type(x).__name__ for x in crew.agents[0].tools}
+    # Guardrail and output models still apply to what the director hands back
+    assert crew.tasks[0].guardrail is competitor_list_guardrail
+    assert crew.tasks[0].output_pydantic is CompetitorList
+
+
+def test_sequential_has_no_manager(settings: Any) -> None:
+    assert _crew(settings).manager_agent is None

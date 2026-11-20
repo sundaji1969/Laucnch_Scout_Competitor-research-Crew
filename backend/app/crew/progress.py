@@ -20,11 +20,14 @@ from app.crew.schemas import CompetitorList, ReviewInsights, StrategyMatrix
 Emit = Callable[[dict[str, Any]], None]
 
 AGENT_KEYS = ["market_researcher", "review_analyst", "strategy_analyst", "report_writer"]
+# Manager in PROCESS_MODE=hierarchical; not one of the four steps of the run timeline.
+MANAGER_KEY = "research_director"
 AGENT_LABELS = {
     "market_researcher": "Market Researcher",
     "review_analyst": "Review Analyst",
     "strategy_analyst": "Strategy Analyst",
     "report_writer": "Report Writer",
+    MANAGER_KEY: "Research Director",
 }
 _URL_RE = re.compile(r"https?://[^\s\"'<>)\]]+")
 
@@ -55,6 +58,11 @@ def _args(tool_args: Any) -> dict[str, Any]:
 def describe_tool_call(tool_name: str, tool_args: Any) -> str:
     a = _args(tool_args)
     name = tool_name.lower()
+    if "coworker" in name:
+        who = _coworker_label(a.get("coworker"))
+        what = _first_sentence(a.get("task") or a.get("question") or "")
+        verb = "Asking" if "question" in name else "Delegating to"
+        return f"{verb} {who}: {what}".rstrip(": ")
     if "price_lookup" in name:
         return f"Checking Google Maps: {a.get('query') or a.get('input', '')}".strip()
     if "search" in name or "serper" in name:
@@ -67,11 +75,30 @@ def describe_tool_call(tool_name: str, tool_args: Any) -> str:
     return f"Using {tool_name}"
 
 
+def _coworker_label(coworker: Any) -> str:
+    """'Local Market Researcher for Coimbatore' -> 'Market Researcher' (falls back to the text)."""
+    text = str(coworker or "").strip()
+    low = text.lower()
+    for key, label in AGENT_LABELS.items():
+        if key != MANAGER_KEY and label.lower() in low:
+            return label
+    return text or "a specialist"
+
+
+def _first_sentence(text: Any, limit: int = 110) -> str:
+    s = " ".join(str(text).split())
+    cut = s.find(". ")
+    s = s[: cut + 1] if 0 < cut < limit else s
+    return s if len(s) <= limit else s[: limit - 1].rstrip() + "…"
+
+
 def summarise_tool_result(tool_name: str, output: Any, tool_args: Any = None) -> str:
     text = output if isinstance(output, str) else json.dumps(output, default=str)[:20000]
     name = tool_name.lower()
     if text.startswith(("SEARCH FAILED", "SCRAPE FAILED", "PLACES LOOKUP FAILED")):
         return text.split(".")[0]
+    if "coworker" in name:
+        return f"{_coworker_label(_args(tool_args).get('coworker'))} reported back"
     if "price_lookup" in name:
         lines = [ln for ln in text.splitlines() if ln[:1].isdigit()]
         priced = [ln for ln in lines if " per person (Google Maps)" in ln]
@@ -129,7 +156,11 @@ def summarise_task_output(agent_key: str, output: Any) -> tuple[str, dict[str, A
 
 @contextmanager
 def crew_progress(
-    run_id: str, emit: Emit, role_to_key: dict[str, str], id_to_key: dict[str, str] | None = None
+    run_id: str,
+    emit: Emit,
+    role_to_key: dict[str, str],
+    id_to_key: dict[str, str] | None = None,
+    task_to_key: dict[str, str] | None = None,
 ) -> Iterator[None]:
     """Register scoped CrewAI event handlers that forward typed progress events to ``emit``."""
     from crewai.events import crewai_event_bus
@@ -223,9 +254,15 @@ def crew_progress(
 
         @crewai_event_bus.on(TaskCompletedEvent)
         def _task_completed(source: Any, event: TaskCompletedEvent) -> None:
-            task_agent = getattr(event.task, "agent", None)
-            role = getattr(task_agent, "role", None) or getattr(event.output, "agent", None)
-            key = key_for(role, getattr(task_agent, "id", None))
+            task_id = str(getattr(event.task, "id", ""))
+            if task_to_key and task_id in task_to_key:
+                # In hierarchical mode the manager executes every task, so the task's own
+                # specialist (fixed before kickoff) decides which step finished.
+                key = task_to_key[task_id]
+            else:
+                task_agent = getattr(event.task, "agent", None)
+                role = getattr(task_agent, "role", None) or getattr(event.output, "agent", None)
+                key = key_for(role, getattr(task_agent, "id", None))
             message, data = summarise_task_output(key, event.output)
             safe_emit(make_event("task_completed", run_id, agent=key, message=message, data=data))
 

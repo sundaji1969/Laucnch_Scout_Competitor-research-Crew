@@ -9,7 +9,7 @@ import { ActivityFeed } from "@/components/run/activity-feed";
 import { AgentStepper } from "@/components/run/agent-stepper";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, Skeleton } from "@/components/ui/primitives";
-import { agentByKey } from "@/lib/agents";
+import { MANAGER, agentByKey } from "@/lib/agents";
 import { api, ApiError, type RunDetail } from "@/lib/api";
 import { useRunEvents } from "@/lib/use-run-events";
 import { formatDuration } from "@/lib/utils";
@@ -73,6 +73,7 @@ function LiveRun({ run, state }: { run: RunDetail; state: ReturnType<typeof useR
   const elapsed = started ? now - started : 0;
   const active = agentByKey(state.activeAgent);
   const finishing = state.terminal?.type === "run_completed";
+  const managed = state.events.some((e) => e.agent === MANAGER.key);
 
   return (
     <div className="container-page py-10 sm:py-14">
@@ -86,6 +87,7 @@ function LiveRun({ run, state }: { run: RunDetail; state: ReturnType<typeof useR
               </span>
               {run.status === "queued" && !state.events.length ? "In queue" : finishing ? "Finishing up" : "Researching"}
             </Badge>
+            {managed && <Badge tone="neutral">Coordinated by {MANAGER.name}</Badge>}
             {state.connection === "reconnecting" && (
               <Badge tone="neutral">
                 <WifiOff className="size-3" aria-hidden /> Reconnecting…

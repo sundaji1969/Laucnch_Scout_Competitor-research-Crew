@@ -39,4 +39,15 @@ export const AGENTS: AgentMeta[] = [
   },
 ];
 
-export const agentByKey = (key?: string) => AGENTS.find((a) => a.key === key);
+/** Manager in PROCESS_MODE=hierarchical: it briefs and checks the four specialists, so it
+ *  appears in the activity feed but is not a step of the timeline. */
+export const MANAGER = {
+  key: "research_director",
+  name: "Research Director",
+  initials: "RD",
+  role: "Assigns each step to its specialist and checks the work before passing it on.",
+  tools: ["Delegation"],
+} as const;
+
+export const agentByKey = (key?: string) =>
+  key === MANAGER.key ? MANAGER : AGENTS.find((a) => a.key === key);

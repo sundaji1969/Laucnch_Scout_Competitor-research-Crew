@@ -147,17 +147,42 @@ class LaunchScoutCrew:
     def report_task(self) -> Task:
         return Task(config=self.tasks_config["report_task"])  # type: ignore[index]
 
+    # ----------------------------------------------------------------- manager
+    def research_director(self) -> Agent:
+        """Manager for PROCESS_MODE=hierarchical. Deliberately not an @agent: CrewAI requires the
+        manager to stay out of the agents list, and to have no tools of its own (it is given
+        delegation tools that only reach the specialist each task is assigned to)."""
+        return Agent(
+            config=self.agents_config["research_director"],  # type: ignore[index]
+            tools=[],
+            llm=self.llm,
+            allow_delegation=True,
+            verbose=self.settings.crew_verbose,
+        )
+
     # -------------------------------------------------------------------- crew
     @crew
     def crew(self) -> Crew:
         hierarchical = self.settings.process_mode.lower() == "hierarchical"
         kwargs: dict[str, Any] = {}
         if hierarchical:  # stretch goal, behind PROCESS_MODE flag
-            kwargs["manager_llm"] = self.llm
-        return Crew(
+            # Tasks keep their specialist, so the director can only delegate each task to
+            # its owner; guardrails and output models still apply to what it hands back.
+            kwargs["manager_agent"] = self.research_director()
+        crew = Crew(
             agents=self.agents,
             tasks=self.tasks,
             process=Process.hierarchical if hierarchical else Process.sequential,
             verbose=self.settings.crew_verbose,
             **kwargs,
         )
+        if hierarchical:
+            # Task copies its agent's tools onto itself (Task.check_tools, which re-runs on
+            # assignment and when the Crew validates its tasks), and the manager executes each
+            # task with the task's tools, so the director searched and scraped itself instead
+            # of delegating (seen in the first hierarchical run). Empty the lists beneath the
+            # validator once the crew is built: the director keeps only its delegation tools,
+            # and specialists still use their own tools when a task is delegated to them.
+            for t in crew.tasks:
+                object.__setattr__(t, "tools", [])
+        return crew

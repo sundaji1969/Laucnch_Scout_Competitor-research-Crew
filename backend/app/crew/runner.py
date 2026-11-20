@@ -17,9 +17,13 @@ from pydantic import BaseModel
 from app.config import Settings, get_settings
 from app.crew import provenance
 from app.crew.inputs import RunInputs
-from app.crew.progress import AGENT_KEYS, Emit, crew_progress, make_event
+from app.crew.progress import AGENT_KEYS, MANAGER_KEY, Emit, crew_progress, make_event
 from app.crew.schemas import CompetitorList, ReviewInsights, StrategyMatrix
-from app.services.report_validator import ReportValidationError, validate_report
+from app.services.report_validator import (
+    ReportValidationError,
+    split_sections,
+    validate_report,
+)
 
 log = logging.getLogger("launchscout.runner")
 
@@ -51,6 +55,29 @@ def clean_markdown(text: str) -> str:
     if m:
         text = m.group(1).strip()
     return text + "\n"
+
+
+def _prefer_complete_report(markdown: str, saved_path: Any) -> str:
+    """Use the Report Writer's saved report.md when the final answer is missing sections.
+
+    In PROCESS_MODE=hierarchical the last task's output is the manager's answer, which can
+    come back as "the report has been saved" instead of the report itself. The writer saved
+    the full report with its file tool, so prefer whichever has more required sections.
+    """
+    try:
+        saved = clean_markdown(saved_path.read_text(encoding="utf-8")) if saved_path.exists() else ""
+    except OSError:
+        return markdown
+    if not saved:
+        return markdown
+    final_n, saved_n = len(split_sections(markdown)), len(split_sections(saved))
+    if saved_n > final_n:
+        log.warning(
+            "final_answer_incomplete_using_saved_report",
+            extra={"sections_final": final_n, "sections_saved": saved_n},
+        )
+        return saved
+    return markdown
 
 
 def _noop(_: dict[str, Any]) -> None:
@@ -101,12 +128,22 @@ def run_crew(
     crew = crew_factory(settings)
     role_to_key = {a.role.strip(): k for a, k in zip(crew.agents, AGENT_KEYS, strict=False)}
     id_to_key = {str(a.id): k for a, k in zip(crew.agents, AGENT_KEYS, strict=False)}
+    manager = getattr(crew, "manager_agent", None)
+    if manager is not None:  # PROCESS_MODE=hierarchical
+        role_to_key[str(manager.role).strip()] = MANAGER_KEY
+        id_to_key[str(manager.id)] = MANAGER_KEY
+    # Each task's specialist, fixed before kickoff (the manager executes tasks in hierarchical mode).
+    task_to_key = {
+        str(t.id): id_to_key[str(t.agent.id)]
+        for t in getattr(crew, "tasks", []) or []
+        if getattr(t, "agent", None) is not None and str(t.agent.id) in id_to_key
+    }
     crew_inputs = inputs.as_crew_inputs(run_id, out_dir.as_posix(), date.today().isoformat())
 
     if track_provenance:
         provenance.start()
     try:
-        with crew_progress(run_id, emit, role_to_key, id_to_key):
+        with crew_progress(run_id, emit, role_to_key, id_to_key, task_to_key):
             output = crew.kickoff(inputs=crew_inputs)
     except Exception as exc:
         provenance.stop()
@@ -120,6 +157,7 @@ def run_crew(
     # Authoritative copy: always (over)write report.md from the final task output, so the
     # saved file matches what is validated even if the agent's FileWriterTool call varied.
     report_path = out_dir / "report.md"
+    markdown = _prefer_complete_report(markdown, report_path)
     report_path.write_text(markdown, encoding="utf-8")
 
     structured = _structured_outputs(tasks_output)

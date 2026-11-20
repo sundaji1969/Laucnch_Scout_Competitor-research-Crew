@@ -96,7 +96,7 @@ export interface RunEvent {
   run_id: string;
   ts: number;
   seq?: number;
-  agent?: AgentKey | "unknown";
+  agent?: AgentKey | "research_director" | "unknown";
   tool?: string;
   message?: string;
   level?: "warning";

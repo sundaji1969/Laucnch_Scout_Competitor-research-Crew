@@ -121,5 +121,13 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 - Provenance accepts a price that sits on the same Places line as the exact Maps link cited for that competitor (one line = one listing), so "MBF Millet Mothers" can cite the "Millet Mothers" listing; a different listing's link does not verify it (tested).
 - Google's lowest band "₹1–200" is written "under ₹200", so neither the report nor the chart implies a ₹100 midpoint.
 
+## Hierarchical process (stretch goal, `PROCESS_MODE=hierarchical`, off by default)
+- A named manager, the Research Director (`agents.yaml: research_director`), replaces CrewAI's generic `manager_llm` manager. It is not an `@agent` (CrewAI requires the manager to stay out of the agents list) and has no tools of its own; CrewAI gives it delegation tools.
+- Tasks keep their specialist, so the director can only delegate each task to its owner. Guardrails, `output_pydantic` and provenance still apply to what it hands back. Its backstory tells it to pass each deliverable on verbatim and never change a competitor, price, URL or citation; provenance enforces that regardless.
+- First local run: the director searched and scraped itself instead of delegating. `Task.check_tools` copies the agent's tools onto the task (also on assignment and when the Crew validates its tasks), and the manager executes tasks with the task's tools. Fixed by emptying each task's tool list beneath the validator after the Crew is built; specialists keep their tools and use them when delegated to. Second run: the director delegates and the specialists do the work (verified from the progress log).
+- Progress: the director appears in the feed as "Research Director" ("Delegating to Market Researcher: …", "Market Researcher reported back") but not as a timeline step; `task_completed` events are mapped by task to the task's specialist, since the manager executes every task. The run page shows "Coordinated by Research Director".
+- The runner prefers the Report Writer's saved `report.md` if the manager's final answer has fewer report sections than the saved file (e.g. "the report has been saved").
+- Cost: the director adds LLM calls on top of the specialists', and a rejected step is re-delegated, so expect more tokens per run than sequential mode.
+
 ## Known follow-ups
-- Stretch goals not started: hierarchical process (flag exists, `PROCESS_MODE=hierarchical`), Pitch Deck agent, weekly re-run.
+- Stretch goals not started: Pitch Deck agent, weekly re-run.
