@@ -20,7 +20,8 @@ ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE \
     NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npx next build
+# public/ may be empty, and git does not track empty folders; make sure it exists for the copy below.
+RUN mkdir -p public && npx next build
 
 FROM node:${NODE_VERSION}-alpine AS runtime
 WORKDIR /app
