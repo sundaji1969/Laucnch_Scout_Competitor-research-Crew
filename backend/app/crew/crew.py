@@ -14,9 +14,9 @@ from app.crew.schemas import CompetitorList, ReviewInsights, StrategyMatrix
 from app.crew.tools.safe_tools import scrape_tool, search_tool
 
 
-def build_llm(settings: Settings) -> LLM:
-    """LLM is chosen purely from LLM_MODEL (provider/model). Never hard-coded."""
-    return LLM(model=settings.llm_model, temperature=settings.llm_temperature)
+def build_llm(settings: Settings, model: str | None = None) -> LLM:
+    """LLM is chosen purely from env (provider/model strings). Never hard-coded."""
+    return LLM(model=model or settings.llm_model, temperature=settings.llm_temperature)
 
 
 @CrewBase
@@ -32,11 +32,25 @@ class LaunchScoutCrew:
     def __init__(self, settings: Settings | None = None, llm: Any | None = None) -> None:
         self.settings = settings or get_settings()
         self.llm = llm if llm is not None else build_llm(self.settings)
+        # The two tool-using research agents can run on a cheaper model (LLM_MODEL_RESEARCH);
+        # strategy and writing stay on LLM_MODEL, where reasoning and prose quality show.
+        research_model = self.settings.llm_model_research.strip()
+        if llm is not None or not research_model or research_model == self.settings.llm_model:
+            self.research_llm = self.llm
+        else:
+            self.research_llm = build_llm(self.settings, research_model)
 
     def _research_tools(self) -> list[Any]:
+        s = self.settings
         return [
-            search_tool(country=self.settings.serper_country, locale=self.settings.serper_locale),
-            scrape_tool(),
+            search_tool(
+                country=s.serper_country,
+                locale=s.serper_locale,
+                n_results=s.serper_results,
+                cache_ttl=s.search_cache_ttl_seconds,
+                redis_url=s.redis_url,
+            ),
+            scrape_tool(max_chars=s.scrape_max_chars),
         ]
 
     # ------------------------------------------------------------------ agents
@@ -45,9 +59,9 @@ class LaunchScoutCrew:
         return Agent(
             config=self.agents_config["market_researcher"],  # type: ignore[index]
             tools=self._research_tools(),
-            llm=self.llm,
+            llm=self.research_llm,
             allow_delegation=False,
-            max_iter=25,
+            max_iter=self.settings.agent_max_iter,
             verbose=self.settings.crew_verbose,
         )
 
@@ -56,9 +70,9 @@ class LaunchScoutCrew:
         return Agent(
             config=self.agents_config["review_analyst"],  # type: ignore[index]
             tools=self._research_tools(),
-            llm=self.llm,
+            llm=self.research_llm,
             allow_delegation=False,
-            max_iter=25,
+            max_iter=self.settings.agent_max_iter,
             verbose=self.settings.crew_verbose,
         )
 

@@ -19,12 +19,17 @@ class Settings(BaseSettings):
 
     # LLM
     llm_model: str = "anthropic/claude-sonnet-5-5"
+    # Optional cheaper model for the two tool-using research agents (empty = use llm_model)
+    llm_model_research: str = ""
     llm_temperature: float = 0.2
 
     # Search
     serper_api_key: str = ""
     serper_country: str = "in"
     serper_locale: str = "en"
+    serper_results: int = 6
+    # Cache identical Serper queries in Redis (0 = off)
+    search_cache_ttl_seconds: int = 86_400
 
     # Crew
     process_mode: str = "sequential"
@@ -32,13 +37,22 @@ class Settings(BaseSettings):
     run_timeout_seconds: int = 900
     outputs_dir: Path = Path("outputs")
     crew_verbose: bool = False
+    # Context size controls: everything an agent reads is re-sent on every step of its loop
+    scrape_max_chars: int = 5_000
+    agent_max_iter: int = 12
+
+    # Cost guards
+    # Max new runs per UTC day across all users (0 = unlimited)
+    daily_run_cap: int = 30
+    # Serve an existing report for the same idea + city + customer from the last N days (0 = off)
+    reuse_window_days: int = 7
 
     # Infra
     database_url: str = "postgresql+asyncpg://launchscout:launchscout@localhost:5432/launchscout"
     redis_url: str = "redis://localhost:6379/0"
 
     # Hardening
-    rate_limit_runs: str = "5/hour"
+    rate_limit_runs: str = "3/day"
     max_concurrent_runs: int = 2
     cors_origins: str = "http://localhost:3000"
     max_input_chars: int = 300
