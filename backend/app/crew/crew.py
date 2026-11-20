@@ -9,7 +9,7 @@ from crewai.project import CrewBase, agent, crew, task
 from crewai_tools import FileWriterTool
 
 from app.config import Settings, get_settings
-from app.crew.guardrails import competitor_list_guardrail, review_insights_guardrail
+from app.crew.guardrails import competitor_list_guardrail, review_insights_guardrail, set_price_lookup
 from app.crew.schemas import CompetitorList, ReviewInsights, StrategyMatrix
 from app.crew.tools.safe_tools import places_tool, scrape_tool, search_tool
 
@@ -54,19 +54,24 @@ class LaunchScoutCrew:
         ]
 
     def _price_tools(self) -> list[Any]:
-        """Google Maps price ranges for local businesses (Swiggy/Zomato menus aren't readable)."""
+        """Google Maps price ranges for local businesses (Swiggy/Zomato menus aren't readable).
+
+        The same lookup backs the task-1 guardrail's fill-in for competitors the agent left
+        unpriced (see guardrails.fill_prices_from_maps).
+        """
         s = self.settings
         if not s.places_lookup_enabled:
+            set_price_lookup(None)
             return []
-        return [
-            places_tool(
-                api_key=s.serper_api_key,
-                country=s.serper_country,
-                locale=s.serper_locale,
-                cache_ttl=s.search_cache_ttl_seconds,
-                redis_url=s.redis_url,
-            )
-        ]
+        tool = places_tool(
+            api_key=s.serper_api_key,
+            country=s.serper_country,
+            locale=s.serper_locale,
+            cache_ttl=s.search_cache_ttl_seconds,
+            redis_url=s.redis_url,
+        )
+        set_price_lookup(tool.lookup)
+        return [tool]
 
     # ------------------------------------------------------------------ agents
     @agent

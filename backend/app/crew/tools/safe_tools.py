@@ -24,6 +24,7 @@ from crewai_tools import ScrapeWebsiteTool, SerperDevTool
 from pydantic import BaseModel, Field
 
 from app.crew import provenance
+from app.crew.tools.price_band import price_band
 
 log = logging.getLogger("launchscout.tools")
 
@@ -153,45 +154,50 @@ class LocalPriceTool(BaseTool):  # type: ignore[misc]
         except Exception:  # noqa: BLE001 - cache is optional
             return None
 
-    def _run(self, query: str = "", **_: Any) -> str:
+    def lookup(self, query: str) -> list[dict[str, Any]] | None:
+        """Raw Places results for ``query`` (cached), recorded as evidence. None if the call failed."""
         query = str(query).strip()[:200]
-        if not query:
-            return "Give a business name and city, e.g. 'Millet Life Coimbatore'."
         provenance.record_search()
         key = (
-            "launchscout:places:"
+            "launchscout:places:v2:"
             + hashlib.sha256(json.dumps([query, self.country, self.locale]).encode()).hexdigest()
         )
         cache = self._cache()
+        places: list[dict[str, Any]] | None = None
         if cache is not None:
             with contextlib.suppress(Exception):
                 hit = cache.get(key)
                 if hit:
-                    text = hit.decode() if isinstance(hit, bytes) else str(hit)
-                    provenance.record_text(text, kind="places", ref=query)
-                    return text
-        api_key = self.api_key or os.environ.get("SERPER_API_KEY", "")
-        try:
-            resp = httpx.post(
-                self.endpoint,
-                json={"q": query, "gl": self.country, "hl": self.locale},
-                headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
-                timeout=20,
-            )
-            resp.raise_for_status()
-            places = resp.json().get("places") or []
-        except Exception as exc:  # noqa: BLE001 - tools must not crash the crew
-            log.warning("places_failed", extra={"error": str(exc)[:300], "query": query})
-            return (
-                f"PLACES LOOKUP FAILED ({type(exc).__name__}). "
-                "Use web search results for this business instead."
-            )
-        text = format_places(query, places)
-        provenance.record_text(text, kind="places", ref=query)
-        if cache is not None:
-            with contextlib.suppress(Exception):
-                cache.setex(key, self.cache_ttl, text)
-        return text
+                    places = json.loads(hit)
+        if places is None:
+            api_key = self.api_key or os.environ.get("SERPER_API_KEY", "")
+            try:
+                resp = httpx.post(
+                    self.endpoint,
+                    json={"q": query, "gl": self.country, "hl": self.locale},
+                    headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+                    timeout=20,
+                )
+                resp.raise_for_status()
+                places = list(resp.json().get("places") or [])
+            except Exception as exc:  # noqa: BLE001 - tools must not crash the crew
+                log.warning("places_failed", extra={"error": str(exc)[:300], "query": query})
+                return None
+            if cache is not None:
+                with contextlib.suppress(Exception):
+                    cache.setex(key, self.cache_ttl, json.dumps(places))
+        # Record exactly the text an agent would see, so provenance checks match it.
+        provenance.record_text(format_places(query, places), kind="places", ref=query)
+        return places
+
+    def _run(self, query: str = "", **_: Any) -> str:
+        query = str(query).strip()[:200]
+        if not query:
+            return "Give a business name and city, e.g. 'Millet Life Coimbatore'."
+        places = self.lookup(query)
+        if places is None:
+            return "PLACES LOOKUP FAILED. Use web search results for this business instead."
+        return format_places(query, places)
 
 
 def format_places(query: str, places: list[dict[str, Any]], limit: int = 5) -> str:
@@ -201,7 +207,7 @@ def format_places(query: str, places: list[dict[str, Any]], limit: int = 5) -> s
     lines = [f"Google Maps results for '{query}':"]
     for i, p in enumerate(places[:limit], 1):
         title = str(p.get("title") or "Unknown")
-        price = p.get("priceLevel")
+        price = price_band(p.get("priceLevel"))
         parts = [f"{i}. {title}"]
         parts.append(f"price {price} per person (Google Maps)" if price else "price not shown on Google Maps")
         if p.get("rating") is not None:

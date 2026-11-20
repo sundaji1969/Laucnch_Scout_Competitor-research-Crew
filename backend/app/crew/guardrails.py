@@ -7,12 +7,14 @@ message (up to ``guardrail_max_retries`` times).
 """
 
 import json
+from collections.abc import Callable
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import HttpUrl, ValidationError
 
 from app.crew import provenance
 from app.crew.schemas import NOT_LISTED, CompetitorList, ReviewInsights
+from app.crew.tools.price_band import price_band
 
 MIN_COMPETITORS = 3
 MIN_SEARCHES = 3
@@ -109,6 +111,56 @@ def downgrade_unverified_prices(parsed: CompetitorList, bad: dict[str, list[str]
     return parsed.model_copy(update={"competitors": comps})
 
 
+PriceLookup = Callable[[str], "list[dict[str, Any]] | None"]
+_price_lookup: PriceLookup | None = None
+MAPS_NOTE = "Price is Google Maps' typical spend per person."
+
+
+def set_price_lookup(fn: PriceLookup | None) -> None:
+    """Enable (or disable, with None) the Google Maps fill-in for unpriced competitors."""
+    global _price_lookup
+    _price_lookup = fn
+
+
+def _names_match(a: str, b: str) -> bool:
+    ka, kb = provenance.name_key(a), provenance.name_key(b)
+    short, long_ = sorted((ka, kb), key=len)
+    return len(short) >= 5 and short in long_
+
+
+def fill_prices_from_maps(parsed: CompetitorList) -> tuple[CompetitorList, int]:
+    """Give competitors still 'Not publicly listed' their Google Maps price band, when one exists.
+
+    The research agent is asked to do this itself but doesn't reliably look up every
+    competitor, so the guardrail does it deterministically: one Places lookup per unpriced
+    competitor, accepted only for a listing whose name matches and that shows a price band.
+    The lookup is recorded as evidence and the Maps link is cited, so the usual price checks
+    (and the final report validator) still apply.
+    """
+    if _price_lookup is None:
+        return parsed, 0
+    filled = 0
+    comps = []
+    for c in parsed.competitors:
+        if c.price_per_unit.strip().lower() == NOT_LISTED.lower():
+            for place in (_price_lookup(f"{c.name} {parsed.city}") or [])[:5]:
+                band = price_band(place.get("priceLevel"))
+                if band and place.get("cid") and _names_match(c.name, str(place.get("title", ""))):
+                    url = HttpUrl(f"https://www.google.com/maps?cid={place['cid']}")
+                    c = c.model_copy(
+                        update={
+                            "price_per_unit": f"{band} per person (Google Maps)",
+                            "price_value": None,
+                            "source_urls": [*c.source_urls, url],
+                            "notes": f"{c.notes} {MAPS_NOTE}".strip(),
+                        }
+                    )
+                    filled += 1
+                    break
+        comps.append(c)
+    return parsed.model_copy(update={"competitors": comps}), filled
+
+
 def competitor_list_guardrail(output: Any) -> tuple[bool, Any]:
     """CrewAI guardrail signature: (TaskOutput) -> (success, result_or_error_message).
 
@@ -131,7 +183,10 @@ def competitor_list_guardrail(output: Any) -> tuple[bool, Any]:
                 "competitor's own price, add it to source_urls and copy the price exactly, or set the price "
                 f"to '{NOT_LISTED}' and cite the page you checked. Never estimate a price."
             )
-        return True, downgrade_unverified_prices(parsed, bad).model_dump_json()
+        parsed = downgrade_unverified_prices(parsed, bad)
+    parsed, filled = fill_prices_from_maps(parsed)
+    if bad or filled:
+        return True, parsed.model_dump_json()
     _attach(output, parsed)
     return True, output
 

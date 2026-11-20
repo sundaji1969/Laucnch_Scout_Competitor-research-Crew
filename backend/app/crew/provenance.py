@@ -136,13 +136,23 @@ def number_seen_for(num: str, name: str, urls: Iterable[str] = ()) -> bool:
         return True
     pat = _number_pattern(num)
     key = name_key(name)
-    cited = {normalise_url(u) for u in urls}
+    raw_cited = [str(u).strip() for u in urls if str(u).strip()]
+    cited = {normalise_url(u) for u in raw_cited}
     for kind, ref, text in _corpus:
         matches = list(pat.finditer(text))
         if not matches:
             continue
         if kind == "scrape" and normalise_url(ref) in cited:
             return True
+        if kind == "places" and raw_cited:
+            # A Google Maps line holds one listing: its price and its exact Maps link. Citing
+            # that link ties the price to the listing even if the names differ slightly.
+            for m in matches:
+                line_start = text.rfind("\n", 0, m.start()) + 1
+                line_end = text.find("\n", m.end())
+                line = text[line_start : line_end if line_end >= 0 else len(text)]
+                if any(u in line for u in raw_cited):
+                    return True
         if len(key) < 4:
             continue
         for m in matches:
