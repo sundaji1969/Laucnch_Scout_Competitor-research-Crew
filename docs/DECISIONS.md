@@ -102,7 +102,8 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 ## Lighthouse on the live site (20 Nov 2026, Lighthouse 12.8.2, landing page)
 - Mobile (simulated slow 4G), three runs: Performance 94 / 96 / 95; Accessibility, Best Practices, SEO 100. FCP 1.4 s, LCP 2.8 s, TBT 90-130 ms, CLS 0.
 - Desktop: 100 in all four categories. LCP 0.5 s.
-- The LCP element is the hero `<h1>`. Server response is 50 ms; most of the mobile LCP (about 2.2 s) is render delay from framework JavaScript and the display font. Remaining opportunity: about 60 KB of unused JavaScript.
+- The LCP element is the hero `<h1>`. Server response is 50 ms; most of the mobile LCP (about 2.2 s) is render delay from framework JavaScript and the display font. Unused JavaScript was about 60 KB.
+- Trimmed: 34 KB of it was the `/scout` form's code (Zod, react-hook-form, captcha), prefetched because the header and hero `<Link href="/scout">` were on screen. `IntentLink` turns off viewport prefetch and prefetches on hover, focus or touch instead. After: scripts 188 → 154 KB, unused JS 60 → 27 KB (the rest is inside `react-dom`, not removable), mobile LCP 2.8 → 2.6 s, mobile Performance 95 / 95 / 96, desktop 100.
 
 ## Known follow-ups
 - Aggregator-only markets (Swiggy/Zomato) still yield few prices; a Playwright scrape tool behind a flag remains the plan.
