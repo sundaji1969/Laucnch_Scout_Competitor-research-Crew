@@ -12,31 +12,49 @@ import {
   ZAxis,
 } from "recharts";
 import type { Strategy } from "@/lib/api";
+import { chartPrice } from "@/lib/price";
 
 interface Point {
   name: string;
   price: number;
+  /** Ends of a published price range, drawn as a horizontal bar. */
+  low?: number;
+  high?: number;
   diff: number;
   label: string;
 }
 
 export function PriceChart({ strategy }: { strategy: Strategy }) {
-  const points: Point[] = strategy.matrix
-    .filter((r) => typeof r.price_value === "number" && r.price_value! > 0)
-    .map((r) => ({ name: r.competitor, price: r.price_value!, diff: r.differentiation_score, label: r.price_per_unit }));
-  const unpriced = strategy.matrix.filter((r) => !(typeof r.price_value === "number" && r.price_value! > 0));
+  const points: Point[] = [];
+  let unpriced = 0;
+  for (const r of strategy.matrix) {
+    const p = chartPrice(r.price_value, r.price_per_unit);
+    if (!p) {
+      unpriced += 1;
+      continue;
+    }
+    points.push({
+      name: r.competitor,
+      price: p.value,
+      low: p.low,
+      high: p.high,
+      diff: r.differentiation_score,
+      label: r.price_per_unit,
+    });
+  }
+  const hasRange = points.some((p) => p.low !== undefined);
   const rec = strategy.recommended_price_value ?? undefined;
 
   if (points.length < 2) {
     return (
       <p className="text-sm text-muted">
-        Not enough published prices to chart. {unpriced.length} of {strategy.matrix.length} competitors don&apos;t
+        Not enough published prices to chart. {unpriced} of {strategy.matrix.length} competitors don&apos;t
         list a price publicly, which may itself be an opening for transparent pricing.
       </p>
     );
   }
 
-  const maxPrice = Math.max(...points.map((p) => p.price), rec ?? 0);
+  const maxPrice = Math.max(...points.map((p) => p.high ?? p.price), rec ?? 0);
   // Nudge labels of points that sit close together so names never overprint each other.
   const sorted = [...points].sort((a, b) => a.price - b.price || a.diff - b.diff);
   // Greedy label placement: each label takes the first vertical offset that doesn't overlap a label
@@ -113,9 +131,26 @@ export function PriceChart({ strategy }: { strategy: Strategy }) {
               isAnimationActive={false}
               shape={(props: unknown) => {
                 // Point + label drawn together so the collision offset (dy) is applied reliably.
-                const { cx, cy, payload } = props as { cx: number; cy: number; payload: (typeof labelled)[number] };
+                const { cx, cy, payload, xAxis } = props as {
+                  cx: number;
+                  cy: number;
+                  payload: (typeof labelled)[number];
+                  xAxis?: { scale?: (v: number) => number };
+                };
+                const scale = xAxis?.scale;
+                const range =
+                  scale && payload.low !== undefined && payload.high !== undefined
+                    ? { x1: scale(payload.low), x2: scale(payload.high) }
+                    : null;
                 return (
                   <g>
+                    {range && (
+                      <g stroke="var(--chart-2)" strokeOpacity={0.55} strokeWidth={2}>
+                        <line x1={range.x1} x2={range.x2} y1={cy} y2={cy} />
+                        <line x1={range.x1} x2={range.x1} y1={cy - 4} y2={cy + 4} />
+                        <line x1={range.x2} x2={range.x2} y1={cy - 4} y2={cy + 4} />
+                      </g>
+                    )}
                     <circle cx={cx} cy={cy} r={5} fill="var(--chart-2)" />
                     <text
                       x={cx + 9}
@@ -135,7 +170,8 @@ export function PriceChart({ strategy }: { strategy: Strategy }) {
       </div>
       <figcaption className="mt-2 text-[13px] text-muted">
         Differentiation scores are the Strategy Analyst&apos;s judgement (1 = commodity, 10 = highly distinct).
-        {unpriced.length > 0 && ` ${unpriced.length} competitor${unpriced.length > 1 ? "s" : ""} without a public price ${unpriced.length > 1 ? "are" : "is"} not plotted.`}
+        {hasRange && " Price ranges are plotted at their midpoint, with a bar showing the range."}
+        {unpriced > 0 && ` ${unpriced} competitor${unpriced > 1 ? "s" : ""} without a public price ${unpriced > 1 ? "are" : "is"} not plotted.`}
       </figcaption>
     </figure>
   );

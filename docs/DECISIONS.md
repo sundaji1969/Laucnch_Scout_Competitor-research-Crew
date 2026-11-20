@@ -95,8 +95,11 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 - Checked before both caps, so a reuse costs nothing and uses neither the daily cap nor the visitor's quota. The response is HTTP 200 with `reused: true` (new runs stay 202).
 - The report page says the idea was already researched and when, and offers "Run fresh research", which posts `fresh: true` to skip reuse. A fresh run still goes through both caps.
 
+## Price chart ranges
+- The Strategy Analyst leaves `price_value` empty when a price is a range ("₹200-₹400 per meal"), so the chart used to drop those competitors and the caption wrongly called them unpriced. `frontend/src/lib/price.ts` now reads currency-marked amounts back out of the price text when `price_value` is empty: a range plots at its midpoint with a horizontal bar, and a single amount plots as-is. Only amounts with ₹/Rs/INR/$ count, so "500 ml" is never read as a price. Done in the frontend so existing reports are fixed without re-running them.
+- Frontend unit tests use Node's built-in runner (`npm test`, Node 24 runs TypeScript directly), and CI runs them.
+
 ## Known follow-ups
-- The price-vs-differentiation chart skips competitors whose price is a range (e.g. "₹200-₹400"), but its caption calls them "without a public price". Parse ranges (plot the midpoint) or reword the caption.
 - Aggregator-only markets (Swiggy/Zomato) still yield few prices; a Playwright scrape tool behind a flag remains the plan.
 - Lighthouse not yet re-measured on the live Linux deploy.
 - Stretch goals not started: hierarchical process (flag exists, `PROCESS_MODE=hierarchical`), Pitch Deck agent, weekly re-run.
