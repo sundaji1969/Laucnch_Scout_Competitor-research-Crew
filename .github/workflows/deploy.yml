@@ -26,8 +26,10 @@ jobs:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          # Strip CR: a key pasted through the browser on Windows gets CRLF endings, which ssh rejects.
+          printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null || { echo "::error::VPS_SSH_KEY is not a valid private key (gh secret set VPS_SSH_KEY < keyfile)"; exit 1; }
           ssh-keyscan -T 15 -H "$VPS_HOST" >> ~/.ssh/known_hosts
 
       - name: Pull and restart on the server
