@@ -1,7 +1,9 @@
 # Production override:
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-# Adds Caddy (automatic HTTPS) in front; only ports 80/443 are published.
-# Postgres, Redis, API and frontend are reachable only on the internal network.
+# Runs behind an existing Traefik on the server: Traefik owns ports 80/443 and the
+# Let's Encrypt certificate, and forwards https://$DOMAIN to Caddy, which routes /api,
+# SSE and the frontend over plain HTTP inside Docker. No ports are published.
+# Needs in .env: DOMAIN, TRAEFIK_NETWORK, TRAEFIK_CERTRESOLVER (optionally TRAEFIK_ENTRYPOINT).
 
 services:
   postgres:
@@ -14,7 +16,7 @@ services:
     ports: !reset []
     environment:
       TRUST_PROXY_HEADERS: "true"
-      FORWARDED_ALLOW_IPS: "*"   # only Caddy can reach this container
+      FORWARDED_ALLOW_IPS: "*"   # only Caddy (behind Traefik) can reach this container
       CORS_ORIGINS: https://${DOMAIN}
       LOG_JSON: "true"
       API_WORKERS: "2"
@@ -33,21 +35,32 @@ services:
 
   caddy:
     image: caddy:2.10-alpine
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
     environment:
       DOMAIN: ${DOMAIN}
-      ACME_EMAIL: ${ACME_EMAIL}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    networks:
+      - default
+      - traefik
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${TRAEFIK_NETWORK:?set TRAEFIK_NETWORK in .env (the Docker network Traefik is on)}
+      traefik.http.routers.launchscout.rule: Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)
+      traefik.http.routers.launchscout.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.launchscout.tls: "true"
+      traefik.http.routers.launchscout.tls.certresolver: ${TRAEFIK_CERTRESOLVER:?set TRAEFIK_CERTRESOLVER in .env (the certresolver name in Traefik's config)}
+      traefik.http.services.launchscout.loadbalancer.server.port: "80"
     depends_on:
       - backend
       - frontend
     restart: unless-stopped
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:?set TRAEFIK_NETWORK in .env (the Docker network Traefik is on)}
 
 volumes:
   caddy_data:

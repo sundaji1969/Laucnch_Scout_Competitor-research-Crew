@@ -1,12 +1,19 @@
+# Internal router behind Traefik. Traefik terminates HTTPS (and gets the certificate);
+# Caddy listens on plain HTTP inside Docker and routes /api, SSE and the frontend.
 {
-	email {$ACME_EMAIL}
+	auto_https off
+	servers {
+		# Requests arrive from Traefik on a private Docker network. Trusting it keeps the real
+		# client IP first in X-Forwarded-For (rate limiting depends on it) and keeps
+		# X-Forwarded-Proto=https.
+		trusted_proxies static private_ranges
+	}
 }
 
-www.{$DOMAIN} {
-	redir https://{$DOMAIN}{uri} permanent
-}
+:80 {
+	@www host www.{$DOMAIN}
+	redir @www https://{$DOMAIN}{uri} permanent
 
-{$DOMAIN} {
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"

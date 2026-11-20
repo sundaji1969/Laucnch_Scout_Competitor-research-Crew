@@ -2,7 +2,9 @@
 # LaunchScout VPS bootstrap for Ubuntu 22.04 / 24.04. Idempotent: safe to re-run.
 #
 #   curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/bootstrap.sh -o bootstrap.sh
-#   sudo REPO_URL=git@github.com:<owner>/<repo>.git DOMAIN=example.com ACME_EMAIL=you@example.com bash bootstrap.sh
+#   sudo REPO_URL=git@github.com:<owner>/<repo>.git DOMAIN=example.com \n#        TRAEFIK_NETWORK=<traefik's docker network> TRAEFIK_CERTRESOLVER=<resolver name> bash bootstrap.sh
+#
+# Assumes Traefik already runs on the server and owns ports 80/443 (it issues the certificate).
 #
 # What it does:
 #   1. creates a non-root deploy user (docker group, your SSH keys)
@@ -12,13 +14,15 @@
 #   5. clones the repo (prints a read-only deploy key to add on GitHub if needed)
 #   6. creates .env interactively (secrets are typed, never echoed, never committed)
 #   7. installs a nightly pg_dump backup cron with 7-day retention
-#   8. starts the stack: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#   8. starts the stack behind Traefik: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 set -euo pipefail
 
 DEPLOY_USER="${DEPLOY_USER:-deploy}"
 REPO_URL="${REPO_URL:?set REPO_URL, e.g. git@github.com:owner/launchscout.git}"
 DOMAIN="${DOMAIN:?set DOMAIN, e.g. launchscout.example.com}"
-ACME_EMAIL="${ACME_EMAIL:?set ACME_EMAIL for Let's Encrypt}"
+TRAEFIK_NETWORK="${TRAEFIK_NETWORK:?set TRAEFIK_NETWORK to the docker network Traefik is attached to}"
+TRAEFIK_CERTRESOLVER="${TRAEFIK_CERTRESOLVER:?set TRAEFIK_CERTRESOLVER to the certresolver name in the Traefik config}"
+TRAEFIK_ENTRYPOINT="${TRAEFIK_ENTRYPOINT:-websecure}"
 APP_DIR="/home/${DEPLOY_USER}/launchscout"
 BRANCH="${BRANCH:-main}"
 
@@ -57,7 +61,7 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 systemctl enable --now docker
 usermod -aG docker "$DEPLOY_USER"
-# Docker publishes ports by editing iptables directly; our compose only publishes 80/443 (Caddy).
+# Docker publishes ports by editing iptables directly; our compose publishes none (Traefik owns 80/443).
 
 log "Firewall (UFW): 22, 80, 443"
 ufw default deny incoming
@@ -134,7 +138,9 @@ if [[ ! -f "$ENV_FILE" ]]; then
     -e "s#^NEXT_PUBLIC_API_BASE=.*#NEXT_PUBLIC_API_BASE=#" \
     -e "s#^NEXT_PUBLIC_SITE_URL=.*#NEXT_PUBLIC_SITE_URL=https://${DOMAIN}#" \
     -e "s#^DOMAIN=.*#DOMAIN=${DOMAIN}#" \
-    -e "s#^ACME_EMAIL=.*#ACME_EMAIL=${ACME_EMAIL}#" \
+    -e "s#^TRAEFIK_NETWORK=.*#TRAEFIK_NETWORK=${TRAEFIK_NETWORK}#" \
+    -e "s#^TRAEFIK_CERTRESOLVER=.*#TRAEFIK_CERTRESOLVER=${TRAEFIK_CERTRESOLVER}#" \
+    -e "s#^TRAEFIK_ENTRYPOINT=.*#TRAEFIK_ENTRYPOINT=${TRAEFIK_ENTRYPOINT}#" \
     "$APP_DIR/.env.example" > "$ENV_FILE"
   unset SERPER OPENAI ANTHROPIC GEMINI PGPASS
   chown "$DEPLOY_USER:$DEPLOY_USER" "$ENV_FILE"
@@ -151,6 +157,7 @@ CRON_LINE="17 3 * * * ${APP_DIR}/deploy/backup.sh >> /home/${DEPLOY_USER}/backup
 chmod +x "$APP_DIR/deploy/backup.sh"
 
 log "Starting the stack"
+docker network inspect "$TRAEFIK_NETWORK" >/dev/null 2>&1 || { echo "Docker network $TRAEFIK_NETWORK not found. Is Traefik running?"; exit 1; }
 as_deploy "cd '$APP_DIR' && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build"
 
 log "Done"
