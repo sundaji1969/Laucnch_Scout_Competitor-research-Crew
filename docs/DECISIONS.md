@@ -81,3 +81,15 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 ## CI/CD (Phase 6)
 - `ci.yml`: backend ruff + format check + mypy strict + pytest (live tests excluded); frontend typegen + tsc + eslint + build; both Docker images built with the GHA cache.
 - `deploy.yml`: runs on push to `main` only when the repo variable `DEPLOY_ENABLED=true`, so the first push doesn't fail before the VPS exists. It SSHes as `VPS_USER`, runs `git reset --hard origin/main` and `compose up -d --build`, then polls `https://$DOMAIN/api/health`. Uses secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` and the variable `DOMAIN`.
+
+## Deploy and verification (Phases 7 and 8, 20 Nov 2026)
+- Live at `https://launchscout.sundajigenai.tech` (a subdomain), behind n8n's Traefik: network `n8n_default`, resolver `mytlschallenge`, entrypoint `websecure`.
+- Production model: `openai/gpt-4.1` (the OpenAI key was the one available). Two live runs: Coimbatore millet meal boxes (86 s, 417k tokens, 4 competitors, 9 sources) and Pune mobile pet grooming (95 s, 341k tokens, 5 competitors, 7 sources). Both have all six sections, saved `report.md` and `result.json`, and working MD and PDF downloads.
+- GitHub `VPS_SSH_KEY` was corrupted when pasted through the browser ("error in libcrypto"); re-set from the file with `gh secret set < keyfile`. The workflow now strips CR and validates the key with `ssh-keygen -y` before using it.
+
+## Known follow-ups
+- `DAILY_RUN_CAP` and `REUSE_WINDOW_DAYS` are defined in settings but not enforced anywhere yet. Rate limiting per IP (`RATE_LIMIT_RUNS`) and `MAX_CONCURRENT_RUNS` are the active cost guards.
+- The price-vs-differentiation chart skips competitors whose price is a range (e.g. "₹200-₹400"), but its caption calls them "without a public price". Parse ranges (plot the midpoint) or reword the caption.
+- Aggregator-only markets (Swiggy/Zomato) still yield few prices; a Playwright scrape tool behind a flag remains the plan.
+- Lighthouse not yet re-measured on the live Linux deploy.
+- Stretch goals not started: hierarchical process (flag exists, `PROCESS_MODE=hierarchical`), Pitch Deck agent, weekly re-run.
