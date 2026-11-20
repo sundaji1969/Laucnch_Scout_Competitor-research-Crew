@@ -77,6 +77,8 @@ export interface RunInput {
   target_customer: string;
   known_competitors: string[];
   turnstile_token?: string | null;
+  /** Skip reuse of a recent identical report and start new research. */
+  fresh?: boolean;
 }
 
 export type AgentKey = "market_researcher" | "review_analyst" | "strategy_analyst" | "report_writer";
@@ -140,7 +142,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   createRun: (input: RunInput) =>
-    request<{ run_id: string; status: RunStatus; events_url: string }>("/api/runs", {
+    request<{ run_id: string; status: RunStatus; events_url: string; reused?: boolean }>("/api/runs", {
       method: "POST",
       body: JSON.stringify(input),
     }),

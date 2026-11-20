@@ -1,7 +1,8 @@
 "use client";
 
-import { Check, Copy, FileDown, FileText, Plus } from "lucide-react";
+import { Check, Copy, FileDown, FileText, History, Plus, RefreshCw } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -9,8 +10,8 @@ import { CitationContext, withCitations } from "@/components/report/citations";
 import { PriceChart } from "@/components/report/price-chart";
 import { Button } from "@/components/ui/button";
 import { Badge, Card } from "@/components/ui/primitives";
-import { api, type RunDetail } from "@/lib/api";
-import { cn, domainOf, formatDuration } from "@/lib/utils";
+import { ApiError, api, type RunDetail } from "@/lib/api";
+import { cn, domainOf, formatDuration, formatRelative } from "@/lib/utils";
 
 const SECTIONS = [
   { id: "key-competitors", label: "Key competitors", match: /key competitors/i },
@@ -40,7 +41,7 @@ function splitSources(md: string): string {
   return m ? md.slice(0, m.index) : md;
 }
 
-export function ReportView({ run }: { run: RunDetail }) {
+export function ReportView({ run, reused = false }: { run: RunDetail; reused?: boolean }) {
   const [active, setActive] = useState<number | null>(null);
   const [current, setCurrent] = useState<string>(SECTIONS[0].id);
   const [copied, setCopied] = useState(false);
@@ -150,6 +151,7 @@ export function ReportView({ run }: { run: RunDetail }) {
               <span className="text-muted"> in {run.city}</span>
             </h1>
             <p className="mt-3 text-muted">For: {run.target_customer}</p>
+            {reused ? <ReusedNotice run={run} /> : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline" size="sm">
@@ -281,5 +283,44 @@ function PriceLine({ price, value }: { price: string; value?: number | null }) {
       <span className="font-display text-2xl font-semibold text-accent-strong">{headline}</span>
       {rest && <span className="mt-1 block text-[13px] leading-snug text-muted">{rest}</span>}
     </p>
+  );
+}
+
+/** Shown when the API served an existing recent report instead of starting new research. */
+function ReusedNotice({ run }: { run: RunDetail }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const refresh = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const { run_id } = await api.createRun({
+        business_idea: run.business_idea,
+        city: run.city,
+        target_customer: run.target_customer,
+        known_competitors: run.known_competitors ?? [],
+        fresh: true,
+      });
+      router.push(`/runs/${run_id}`);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Couldn't start new research. Please try again.");
+      setBusy(false);
+    }
+  };
+  return (
+    <div role="status" className="mt-5 rounded-lg border border-border bg-sunken px-4 py-3 text-[14px]">
+      <p className="flex items-start gap-2 text-fg">
+        <History className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
+        <span>
+          This idea was already researched {formatRelative(run.created_at)}, so you&apos;re seeing that report.
+          It didn&apos;t use one of your daily runs.
+        </span>
+      </p>
+      <Button variant="ghost" size="sm" className="mt-2 -ml-2" onClick={refresh} disabled={busy}>
+        <RefreshCw aria-hidden className={cn(busy && "animate-spin")} /> {busy ? "Starting…" : "Run fresh research"}
+      </Button>
+      {err ? <p className="mt-1 text-[13px] text-danger">{err}</p> : null}
+    </div>
   );
 }

@@ -12,12 +12,16 @@ from app.crew.inputs import RunInputs
 
 class RunCreate(RunInputs):
     turnstile_token: str | None = Field(None, max_length=4096)
+    # Skip REUSE_WINDOW_DAYS and always start new research (still subject to the caps)
+    fresh: bool = False
 
 
 class RunCreated(BaseModel):
     run_id: str
     status: str
     events_url: str
+    # True when an existing recent run for the same inputs was returned instead of a new one
+    reused: bool = False
 
 
 class SourceOut(BaseModel):

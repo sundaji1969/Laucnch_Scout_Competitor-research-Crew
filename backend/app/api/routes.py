@@ -94,6 +94,53 @@ async def health(request: Request, session: SessionDep, response: Response) -> H
     return Health(status="ok" if ok else "degraded", checks=checks)
 
 
+REUSABLE = (RunStatus.completed, *ACTIVE)
+
+
+def _norm(text_: str) -> str:
+    return " ".join(text_.split()).casefold()
+
+
+async def _find_reusable_run(session: AsyncSession, body: RunCreate, settings: Settings) -> Run | None:
+    """A recent run with the same idea, city, customer and known competitors (REUSE_WINDOW_DAYS).
+
+    Completed runs are served as-is; queued or running ones are joined, so a double submit
+    doesn't pay for the same research twice. Failed runs are never reused. Matching ignores
+    case and spacing; known competitors are compared as a set.
+    """
+    if settings.reuse_window_days <= 0:
+        return None
+    cutoff = datetime.now(UTC) - timedelta(days=settings.reuse_window_days)
+    candidates = (
+        await session.execute(
+            select(Run)
+            .where(
+                func.lower(Run.city) == body.city.lower(),
+                Run.status.in_(REUSABLE),
+                Run.created_at >= cutoff,
+            )
+            .order_by(Run.created_at.desc())
+            .limit(50)
+        )
+    ).scalars()
+    want = (
+        _norm(body.business_idea),
+        _norm(body.target_customer),
+        frozenset(_norm(c) for c in body.known_competitors),
+    )
+    for run in candidates:
+        have = (
+            _norm(run.business_idea),
+            _norm(run.target_customer),
+            frozenset(_norm(c) for c in run.known_competitors or []),
+        )
+        if have == want and _norm(run.city) == _norm(body.city):
+            if run.status is RunStatus.completed and not run.report_markdown:
+                continue
+            return run
+    return None
+
+
 async def _reserve_daily_slot(request: Request, settings: Settings) -> str | None:
     """Take one of today's DAILY_RUN_CAP slots (all users, UTC day), or raise 429.
 
@@ -127,13 +174,24 @@ async def _reserve_daily_slot(request: Request, settings: Settings) -> str | Non
 
 @router.post("/runs", response_model=RunCreated, status_code=202)
 async def create_run(
-    body: RunCreate, request: Request, session: SessionDep, settings: SettingsDep
+    body: RunCreate, request: Request, response: Response, session: SessionDep, settings: SettingsDep
 ) -> RunCreated:
     ip = client_ip(request, settings)
     await verify_turnstile(body.turnstile_token, ip, settings)
     for field, value in (("business_idea", body.business_idea), ("target_customer", body.target_customer)):
         if len(value) > settings.max_input_chars:
             raise HTTPException(422, detail=f"{field} is longer than {settings.max_input_chars} characters")
+
+    if not body.fresh and (existing := await _find_reusable_run(session, body, settings)):
+        log.info("run_reused", extra={"run_id": existing.id, "city": existing.city})
+        response.status_code = 200
+        return RunCreated(
+            run_id=existing.id,
+            status=existing.status.value,
+            events_url=f"/api/runs/{existing.id}/events",
+            reused=True,
+        )
+
     day_key = await _reserve_daily_slot(request, settings)
     try:
         await request.app.state.rate_limiter.check(ip_hash(ip))

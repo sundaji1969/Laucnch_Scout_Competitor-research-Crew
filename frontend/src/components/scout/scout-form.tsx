@@ -75,8 +75,8 @@ export function ScoutForm() {
       return;
     }
     try {
-      const { run_id } = await api.createRun({ ...values, turnstile_token: token });
-      router.push(`/runs/${run_id}`);
+      const { run_id, reused } = await api.createRun({ ...values, turnstile_token: token });
+      router.push(`/runs/${run_id}${reused ? "?reused=1" : ""}`);
     } catch (err) {
       if (err instanceof ApiError) {
         for (const fe of err.fieldErrors) {

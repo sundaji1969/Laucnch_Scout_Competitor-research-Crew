@@ -34,6 +34,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, A
     monkeypatch.setenv("OUTPUTS_DIR", str(tmp_path / "outputs"))
     monkeypatch.setenv("RATE_LIMIT_RUNS", "3/hour")
     monkeypatch.setenv("MAX_CONCURRENT_RUNS", "2")
+    monkeypatch.setenv("REUSE_WINDOW_DAYS", "0")  # tests that want reuse turn it on
     for fn in (get_settings, db_session.get_engine, db_session.get_sessionmaker):
         fn.cache_clear()
 
@@ -181,6 +182,90 @@ def test_daily_cap_zero_means_unlimited(client: TestClient, env: dict[str, Any])
     env["settings"].daily_run_cap = 0
     assert client.post("/api/runs", json=BODY).status_code == 202
     assert _daily_count(client) == 0
+
+
+def _set_run(client: TestClient, run_id: str, **fields: Any) -> None:
+    async def go() -> None:
+        async with db_session.get_sessionmaker()() as s:
+            run = await s.get(Run, run_id)
+            assert run is not None
+            for k, v in fields.items():
+                setattr(run, k, v)
+            await s.commit()
+
+    client.portal.call(go)  # type: ignore[union-attr]
+
+
+def test_reuse_completed_run(client: TestClient, env: dict[str, Any]) -> None:
+    env["settings"].reuse_window_days = 7
+    env["settings"].daily_run_cap = 1
+    first = client.post("/api/runs", json=BODY).json()["run_id"]
+    _set_run(client, first, status=RunStatus.completed, report_markdown=GOOD)
+    # Same inputs with different case, spacing and competitor order: served from the first run
+    again = {
+        **BODY,
+        "business_idea": "  healthy MILLET meal boxes   delivered for lunch",
+        "city": "coimbatore",
+        "known_competitors": ["millet kitchen"],
+    }
+    r = client.post("/api/runs", json=again)
+    assert r.status_code == 200
+    assert r.json() == {
+        "run_id": first,
+        "status": "completed",
+        "events_url": f"/api/runs/{first}/events",
+        "reused": True,
+    }
+    assert client.enqueued == [first]  # type: ignore[attr-defined]  # nothing new was queued
+    assert _daily_count(client) == 1  # and the reuse didn't need a slot (cap is 1)
+
+
+def test_reuse_joins_a_run_in_progress(client: TestClient, env: dict[str, Any]) -> None:
+    env["settings"].reuse_window_days = 7
+    first = client.post("/api/runs", json=BODY).json()["run_id"]
+    r = client.post("/api/runs", json=BODY)  # e.g. a double submit
+    assert r.json()["run_id"] == first and r.json()["reused"] is True
+    assert len(client.enqueued) == 1  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"city": "Chennai"},
+        {"target_customer": "College students"},
+        {"business_idea": "Millet snack bars"},
+        {"known_competitors": ["Millet Kitchen", "Lunchbox Co"]},
+        {"fresh": True},
+    ],
+)
+def test_no_reuse_when_inputs_differ_or_fresh(
+    client: TestClient, env: dict[str, Any], change: dict[str, Any]
+) -> None:
+    env["settings"].reuse_window_days = 7
+    first = client.post("/api/runs", json=BODY).json()["run_id"]
+    _set_run(client, first, status=RunStatus.completed, report_markdown=GOOD)
+    r = client.post("/api/runs", json={**BODY, **change})
+    assert r.status_code == 202
+    assert r.json()["run_id"] != first and r.json()["reused"] is False
+
+
+def test_no_reuse_of_failed_or_old_runs(client: TestClient, env: dict[str, Any]) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    env["settings"].reuse_window_days = 7
+    failed = client.post("/api/runs", json=BODY).json()["run_id"]
+    _set_run(client, failed, status=RunStatus.failed)
+    old = client.post("/api/runs", json=BODY).json()["run_id"]
+    assert old != failed
+    _set_run(
+        client,
+        old,
+        status=RunStatus.completed,
+        report_markdown=GOOD,
+        created_at=datetime.now(UTC) - timedelta(days=8),
+    )
+    r = client.post("/api/runs", json=BODY)
+    assert r.status_code == 202 and r.json()["run_id"] not in {failed, old}
 
 
 def test_unknown_run_404(client: TestClient) -> None:

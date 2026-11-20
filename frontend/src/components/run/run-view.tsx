@@ -14,7 +14,7 @@ import { api, ApiError, type RunDetail } from "@/lib/api";
 import { useRunEvents } from "@/lib/use-run-events";
 import { formatDuration } from "@/lib/utils";
 
-export function RunView({ runId }: { runId: string }) {
+export function RunView({ runId, reused = false }: { runId: string; reused?: boolean }) {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [loadError, setLoadError] = useState<{ status: number; message: string } | null>(null);
 
@@ -57,7 +57,7 @@ export function RunView({ runId }: { runId: string }) {
 
   if (loadError) return <LoadError {...loadError} onRetry={load} />;
   if (!run) return <RunSkeleton />;
-  if (run.status === "completed" && run.report_markdown) return <ReportView run={run} />;
+  if (run.status === "completed" && run.report_markdown) return <ReportView run={run} reused={reused} />;
   if (run.status === "failed") return <Failed run={run} message={state.terminal?.message ?? run.error} />;
 
   return <LiveRun run={run} state={state} />;

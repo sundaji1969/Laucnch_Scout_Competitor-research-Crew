@@ -102,7 +102,7 @@ Every variable is documented inline in [`.env.example`](.env.example). The ones 
 | `POSTGRES_PASSWORD` | Change it from the default in production |
 | `DOMAIN`, `TRAEFIK_NETWORK`, `TRAEFIK_CERTRESOLVER`, `TRAEFIK_ENTRYPOINT` | Production only (see Deploy) |
 
-Useful knobs: `LLM_MODEL_RESEARCH` (a cheaper model for agents 1 and 2), `SCRAPE_MAX_CHARS`, `AGENT_MAX_ITER`, `SEARCH_CACHE_TTL_SECONDS`, `DAILY_RUN_CAP` (all visitors, per UTC day, default 30), `RATE_LIMIT_RUNS` (per IP, default `3/day`), `MAX_CONCURRENT_RUNS`, `RUN_TIMEOUT_SECONDS`, `TURNSTILE_ENABLED` (Cloudflare captcha on the form).
+Useful knobs: `LLM_MODEL_RESEARCH` (a cheaper model for agents 1 and 2), `SCRAPE_MAX_CHARS`, `AGENT_MAX_ITER`, `SEARCH_CACHE_TTL_SECONDS`, `DAILY_RUN_CAP` (all visitors, per UTC day, default 30), `REUSE_WINDOW_DAYS` (serve a recent identical report, default 7), `RATE_LIMIT_RUNS` (per IP, default `3/day`), `MAX_CONCURRENT_RUNS`, `RUN_TIMEOUT_SECONDS`, `TURNSTILE_ENABLED` (Cloudflare captcha on the form).
 
 API keys stay on the server. The browser only ever sees `NEXT_PUBLIC_*` values, which are public by design.
 
@@ -142,7 +142,7 @@ Measured on the live site with `openai/gpt-4.1` (20 Nov 2026):
 | Millet meal boxes · Coimbatore | 86 s | 417k | 11 | ~$0.85 LLM + ~$0.01 Serper |
 | Mobile pet grooming · Pune | 95 s | 341k | 11 | ~$0.70 LLM + ~$0.01 Serper |
 
-The tokens are almost all input: each agent re-sends what it has read on every step of its loop. To spend less, set `LLM_MODEL_RESEARCH` to a cheaper model for agents 1 and 2, or lower `SCRAPE_MAX_CHARS` or `AGENT_MAX_ITER`. Identical searches are cached in Redis for 24 hours. On the public site, `DAILY_RUN_CAP` (default 30 new runs per UTC day across all visitors, so roughly $25/day at most with GPT-4.1) is the hard ceiling on spend; `RATE_LIMIT_RUNS` (3 per visitor per day) and `MAX_CONCURRENT_RUNS` sit under it. Cost estimates use list prices at the time of writing; check your provider's current prices.
+The tokens are almost all input: each agent re-sends what it has read on every step of its loop. To spend less, set `LLM_MODEL_RESEARCH` to a cheaper model for agents 1 and 2, or lower `SCRAPE_MAX_CHARS` or `AGENT_MAX_ITER`. Identical searches are cached in Redis for 24 hours, and a repeat request for the same idea, city, customer and known competitors within `REUSE_WINDOW_DAYS` (default 7) gets the existing report for free; the page says so and offers "Run fresh research". On the public site, `DAILY_RUN_CAP` (default 30 new runs per UTC day across all visitors, so roughly $25/day at most with GPT-4.1) is the hard ceiling on spend; `RATE_LIMIT_RUNS` (3 per visitor per day) and `MAX_CONCURRENT_RUNS` sit under it. Cost estimates use list prices at the time of writing; check your provider's current prices.
 
 ## Troubleshooting
 

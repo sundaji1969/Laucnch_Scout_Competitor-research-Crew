@@ -90,8 +90,12 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 ## Daily run cap
 - `DAILY_RUN_CAP` (default 30, 0 = off) limits new runs per UTC day across all visitors. It is an atomic Redis `INCR` on `launchscout:daily_runs:YYYYMMDD` (2-day TTL), so simultaneous requests can't overshoot it the way a database count could. It is checked before the per-IP limiter so a refusal doesn't use up the visitor's own quota, and the slot is given back if a later check (rate limit, busy) rejects the request. Refusals are HTTP 429 with `Retry-After` until midnight UTC and a message the form shows as-is.
 
+## Report reuse
+- `REUSE_WINDOW_DAYS` (default 7, 0 = off): `POST /api/runs` returns an existing run when idea, city, target customer and known competitors match, ignoring case, spacing and competitor order. Completed runs (with a report) are served; queued or running ones are joined, so a double submit pays once. Failed runs are never reused.
+- Checked before both caps, so a reuse costs nothing and uses neither the daily cap nor the visitor's quota. The response is HTTP 200 with `reused: true` (new runs stay 202).
+- The report page says the idea was already researched and when, and offers "Run fresh research", which posts `fresh: true` to skip reuse. A fresh run still goes through both caps.
+
 ## Known follow-ups
-- `REUSE_WINDOW_DAYS` is defined in settings but not enforced yet (serve a recent report for the same idea + city + customer instead of a new run).
 - The price-vs-differentiation chart skips competitors whose price is a range (e.g. "₹200-₹400"), but its caption calls them "without a public price". Parse ranges (plot the midpoint) or reword the caption.
 - Aggregator-only markets (Swiggy/Zomato) still yield few prices; a Playwright scrape tool behind a flag remains the plan.
 - Lighthouse not yet re-measured on the live Linux deploy.
