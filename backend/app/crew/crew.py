@@ -9,7 +9,13 @@ from crewai.project import CrewBase, agent, crew, task
 from crewai_tools import FileWriterTool
 
 from app.config import Settings, get_settings
-from app.crew.guardrails import competitor_list_guardrail, review_insights_guardrail, set_price_lookup
+from app.crew import delegation
+from app.crew.guardrails import (
+    competitor_list_guardrail,
+    review_insights_guardrail,
+    set_price_lookup,
+    strategy_from_specialist_guardrail,
+)
 from app.crew.schemas import CompetitorList, ReviewInsights, StrategyMatrix
 from app.crew.tools.safe_tools import places_tool, scrape_tool, search_tool
 
@@ -17,6 +23,21 @@ from app.crew.tools.safe_tools import places_tool, scrape_tool, search_tool
 def build_llm(settings: Settings, model: str | None = None) -> LLM:
     """LLM is chosen purely from env (provider/model strings). Never hard-coded."""
     return LLM(model=model or settings.llm_model, temperature=settings.llm_temperature)
+
+
+class TrackedAgent(Agent):  # type: ignore[misc]
+    """An Agent that records each finished execution in ``delegation`` under its key.
+
+    Delegation calls the coworker's ``execute_task`` directly, so this sees the specialist's
+    work whether the crew runs it (sequential) or the manager delegates to it (hierarchical).
+    """
+
+    tracking_key: str = ""
+
+    def execute_task(self, task: Any, context: str | None = None, tools: Any = None) -> Any:
+        result = super().execute_task(task, context, tools)
+        delegation.record(self.tracking_key, result)
+        return result
 
 
 @CrewBase
@@ -76,7 +97,8 @@ class LaunchScoutCrew:
     # ------------------------------------------------------------------ agents
     @agent
     def market_researcher(self) -> Agent:
-        return Agent(
+        return TrackedAgent(
+            tracking_key="market_researcher",
             config=self.agents_config["market_researcher"],  # type: ignore[index]
             tools=self._research_tools() + self._price_tools(),
             llm=self.research_llm,
@@ -87,7 +109,8 @@ class LaunchScoutCrew:
 
     @agent
     def review_analyst(self) -> Agent:
-        return Agent(
+        return TrackedAgent(
+            tracking_key="review_analyst",
             config=self.agents_config["review_analyst"],  # type: ignore[index]
             tools=self._research_tools(),
             llm=self.research_llm,
@@ -98,7 +121,8 @@ class LaunchScoutCrew:
 
     @agent
     def strategy_analyst(self) -> Agent:
-        return Agent(
+        return TrackedAgent(
+            tracking_key="strategy_analyst",
             config=self.agents_config["strategy_analyst"],  # type: ignore[index]
             tools=[],
             llm=self.llm,
@@ -108,7 +132,8 @@ class LaunchScoutCrew:
 
     @agent
     def report_writer(self) -> Agent:
-        return Agent(
+        return TrackedAgent(
+            tracking_key="report_writer",
             config=self.agents_config["report_writer"],  # type: ignore[index]
             # sandboxed to the outputs directory: the agent cannot write anywhere else
             tools=[FileWriterTool(base_dir=str(self.settings.outputs_path.resolve()))],
@@ -138,9 +163,18 @@ class LaunchScoutCrew:
 
     @task
     def strategy_task(self) -> Task:
+        extra: dict[str, Any] = {}
+        if self._hierarchical():
+            # The Strategy Analyst has no tools, so nothing else makes the director delegate
+            # this step: require that the analyst ran, and use the analyst's own answer.
+            extra = {
+                "guardrail": strategy_from_specialist_guardrail,
+                "guardrail_max_retries": self.settings.guardrail_max_retries,
+            }
         return Task(
             config=self.tasks_config["strategy_task"],  # type: ignore[index]
             output_pydantic=StrategyMatrix,
+            **extra,
         )
 
     @task
@@ -161,9 +195,13 @@ class LaunchScoutCrew:
         )
 
     # -------------------------------------------------------------------- crew
+    def _hierarchical(self) -> bool:
+        return self.settings.process_mode.lower() == "hierarchical"
+
     @crew
     def crew(self) -> Crew:
-        hierarchical = self.settings.process_mode.lower() == "hierarchical"
+        delegation.reset()  # one crew per process: start this run's record of who did what
+        hierarchical = self._hierarchical()
         kwargs: dict[str, Any] = {}
         if hierarchical:  # stretch goal, behind PROCESS_MODE flag
             # Tasks keep their specialist, so the director can only delegate each task to

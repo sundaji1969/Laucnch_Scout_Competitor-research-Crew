@@ -102,4 +102,25 @@ def test_hierarchical_flag(settings: Any) -> None:
 
 
 def test_sequential_has_no_manager(settings: Any) -> None:
-    assert _crew(settings).manager_agent is None
+    crew = _crew(settings)
+    assert crew.manager_agent is None
+    assert crew.tasks[2].guardrail is None  # the strategy check is only for hierarchical mode
+
+
+def test_specialists_are_tracked_and_director_must_delegate_strategy(settings: Any) -> None:
+    from app.crew.crew import TrackedAgent
+    from app.crew.guardrails import strategy_from_specialist_guardrail
+
+    settings.process_mode = "hierarchical"
+    crew = _crew(settings)
+    assert [a.tracking_key for a in crew.agents] == [
+        "market_researcher",
+        "review_analyst",
+        "strategy_analyst",
+        "report_writer",
+    ]
+    assert all(isinstance(a, TrackedAgent) for a in crew.agents)
+    assert not isinstance(crew.manager_agent, TrackedAgent)
+    strategy = crew.tasks[2]
+    assert strategy.guardrail is strategy_from_specialist_guardrail
+    assert strategy.guardrail_max_retries == 2

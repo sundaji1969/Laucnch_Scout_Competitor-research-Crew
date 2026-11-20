@@ -45,6 +45,12 @@ def test_end_to_end_mocked(settings: Any) -> None:
     assert types[-1] == "run_completed"
     first_done = next(e for e in events if e["type"] == "task_completed")
     assert first_done["message"].startswith("Found 3 competitors")
+    # Every specialist's own execution is on record (what the hierarchical guardrail relies on)
+    from app.crew import delegation
+
+    for key in ("market_researcher", "review_analyst", "strategy_analyst", "report_writer"):
+        assert delegation.outputs(key), key
+    assert "₹169 per meal" in delegation.outputs("strategy_analyst")[-1]
 
 
 def test_invalid_report_fails_run(settings: Any) -> None:

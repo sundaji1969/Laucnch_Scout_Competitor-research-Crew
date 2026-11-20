@@ -12,8 +12,8 @@ from typing import Any
 
 from pydantic import HttpUrl, ValidationError
 
-from app.crew import provenance
-from app.crew.schemas import NOT_LISTED, CompetitorList, ReviewInsights
+from app.crew import delegation, provenance
+from app.crew.schemas import NOT_LISTED, CompetitorList, ReviewInsights, StrategyMatrix
 from app.crew.tools.price_band import price_band
 
 MIN_COMPETITORS = 3
@@ -246,3 +246,37 @@ def _attach(output: Any, parsed: Any) -> None:
             output.json_dict = parsed.model_dump(mode="json")
         except (AttributeError, ValueError, TypeError):
             pass
+
+
+STRATEGY_OWNER = "strategy_analyst"
+
+
+def _strategy_from(text: str) -> StrategyMatrix | None:
+    try:
+        return StrategyMatrix.model_validate_json(text[text.find("{") : text.rfind("}") + 1])
+    except (ValidationError, ValueError):
+        return None
+
+
+def strategy_from_specialist_guardrail(output: Any) -> tuple[bool, Any]:
+    """Hierarchical mode only: the strategy must come from the Strategy Analyst.
+
+    The manager executes the task and is asked to delegate it, but the analyst has no tools,
+    so the manager could (and in testing did) write the strategy itself. Reject until the
+    analyst has actually run in this run; then prefer the analyst's own answer when it is a
+    valid StrategyMatrix, so the director cannot reword the gap, price or positioning. If the
+    analyst replied in prose (delegated tasks don't carry the output schema), accept the
+    director's structured version of it.
+    """
+    answers = delegation.outputs(STRATEGY_OWNER)
+    if not answers:
+        return False, (
+            "Rejected by guardrail: this task belongs to the Go-to-Market Strategy Analyst and they "
+            "have not worked on it. Use the delegation tool to give it to the Go-to-Market Strategy "
+            "Analyst, with the full competitor research and review findings as context, and ask for "
+            "the complete StrategyMatrix JSON object. Do not write the strategy yourself."
+        )
+    specialist = _strategy_from(answers[-1])
+    if specialist is not None:
+        return True, specialist.model_dump_json()
+    return True, output
