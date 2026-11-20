@@ -47,7 +47,9 @@ services:
     labels:
       traefik.enable: "true"
       traefik.docker.network: ${TRAEFIK_NETWORK:?set TRAEFIK_NETWORK in .env (the Docker network Traefik is on)}
-      traefik.http.routers.launchscout.rule: Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)
+      # Only $DOMAIN: Let's Encrypt rejects the whole certificate if any listed host lacks DNS.
+      # For an apex domain with a www record, append || Host(`www.${DOMAIN}`) (Caddy redirects it).
+      traefik.http.routers.launchscout.rule: Host(`${DOMAIN}`)
       traefik.http.routers.launchscout.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
       traefik.http.routers.launchscout.tls: "true"
       traefik.http.routers.launchscout.tls.certresolver: ${TRAEFIK_CERTRESOLVER:?set TRAEFIK_CERTRESOLVER in .env (the certresolver name in Traefik's config)}

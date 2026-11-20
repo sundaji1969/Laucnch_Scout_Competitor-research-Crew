@@ -2,7 +2,8 @@
 # LaunchScout VPS bootstrap for Ubuntu 22.04 / 24.04. Idempotent: safe to re-run.
 #
 #   curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/bootstrap.sh -o bootstrap.sh
-#   sudo REPO_URL=git@github.com:<owner>/<repo>.git DOMAIN=example.com \n#        TRAEFIK_NETWORK=<traefik's docker network> TRAEFIK_CERTRESOLVER=<resolver name> bash bootstrap.sh
+#   sudo REPO_URL=git@github.com:<owner>/<repo>.git DOMAIN=example.com \
+#        TRAEFIK_NETWORK=<traefik's docker network> TRAEFIK_CERTRESOLVER=<resolver name> bash bootstrap.sh
 #
 # Assumes Traefik already runs on the server and owns ports 80/443 (it issues the certificate).
 #
