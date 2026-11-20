@@ -12,7 +12,7 @@ A founder types an idea, a city and a target customer, for example *"Healthy mil
 
 | # | Agent | Job | Tools |
 |---|-------|-----|-------|
-| 1 | Market Researcher | Find 3 to 5 real competitors in the city with price per unit, offers and sales channels | Serper search, website reader |
+| 1 | Market Researcher | Find 3 to 5 real competitors in the city with price per unit, offers and sales channels | Serper search, website reader, Google Maps price lookup (Serper Places) |
 | 2 | Review Analyst | Find what customers like and complain about for each competitor | Serper search, website reader |
 | 3 | Strategy Analyst | Comparison matrix, the single clearest market gap, recommended price and positioning | none (reasons over 1 and 2) |
 | 4 | Report Writer | Founder-friendly report with a week-by-week 30-day plan and numbered sources | file writer (`report.md`) |
@@ -153,6 +153,6 @@ The tokens are almost all input: each agent re-sends what it has read on every s
 | Run fails at once with `Could not resolve authentication method` | No API key for the `LLM_MODEL` provider in the **server's** `.env`. Add it, then `docker compose ... up -d backend worker`. |
 | Deploy workflow: `Load key ... error in libcrypto` | The `VPS_SSH_KEY` secret is corrupted. Re-set it from the file: `gh secret set VPS_SSH_KEY < keyfile`. |
 | Live progress stops updating | The page reconnects on its own and replays missed events. If it never resumes, check that the proxy isn't buffering `/api/runs/*/events`. |
-| Few prices found for food businesses | Swiggy and Zomato menus are rendered by JavaScript and invisible to the page reader. The report says "Not publicly listed" and cites the page checked. |
+| Few prices found for food businesses | Swiggy and Zomato menus are rendered by JavaScript and their terms forbid scraping, so LaunchScout doesn't read them. It uses prices in search snippets and Google Maps' price per person (`local_price_lookup`, e.g. "₹200–400 per person (Google Maps)"). Businesses with neither show "Not publicly listed". |
 | `git push` rejected for `.github/workflows/*` | Your `gh` token needs the workflow scope: `gh auth refresh -h github.com -s workflow`. |
 | Local Lighthouse scores are erratic on Windows | Proxy auto-detection slows Chrome. Add `--chrome-flags="--no-proxy-server"`. |

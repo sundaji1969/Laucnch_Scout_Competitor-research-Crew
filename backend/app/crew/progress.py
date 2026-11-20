@@ -55,6 +55,8 @@ def _args(tool_args: Any) -> dict[str, Any]:
 def describe_tool_call(tool_name: str, tool_args: Any) -> str:
     a = _args(tool_args)
     name = tool_name.lower()
+    if "price_lookup" in name:
+        return f"Checking Google Maps: {a.get('query') or a.get('input', '')}".strip()
     if "search" in name or "serper" in name:
         return f"Searching: {a.get('search_query') or a.get('query') or a.get('input', '')}".strip()
     if "scrape" in name or "website" in name:
@@ -68,8 +70,14 @@ def describe_tool_call(tool_name: str, tool_args: Any) -> str:
 def summarise_tool_result(tool_name: str, output: Any, tool_args: Any = None) -> str:
     text = output if isinstance(output, str) else json.dumps(output, default=str)[:20000]
     name = tool_name.lower()
-    if text.startswith(("SEARCH FAILED", "SCRAPE FAILED")):
+    if text.startswith(("SEARCH FAILED", "SCRAPE FAILED", "PLACES LOOKUP FAILED")):
         return text.split(".")[0]
+    if "price_lookup" in name:
+        lines = [ln for ln in text.splitlines() if ln[:1].isdigit()]
+        priced = [ln for ln in lines if " per person (Google Maps)" in ln]
+        if not lines:
+            return "No Google Maps listing"
+        return f"{len(lines)} Google Maps listings · {len(priced)} with a price range"
     if "search" in name or "serper" in name:
         urls = list(dict.fromkeys(_URL_RE.findall(text)))
         domains = list(dict.fromkeys(_domain(u) for u in urls))

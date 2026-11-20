@@ -39,10 +39,19 @@ def test_sequential_by_default(settings: Any) -> None:
 def test_tools_per_agent(settings: Any) -> None:
     crew = _crew(settings)
     names = [sorted(type(t).__name__ for t in a.tools) for a in crew.agents]
-    assert names[0] == ["SafeScrapeWebsiteTool", "SafeSerperDevTool"]
+    assert names[0] == ["LocalPriceTool", "SafeScrapeWebsiteTool", "SafeSerperDevTool"]
     assert names[1] == ["SafeScrapeWebsiteTool", "SafeSerperDevTool"]
     assert names[2] == []
     assert names[3] == ["FileWriterTool"]
+
+
+def test_places_lookup_can_be_turned_off(settings: Any) -> None:
+    settings.places_lookup_enabled = False
+    crew = _crew(settings)
+    assert sorted(type(t).__name__ for t in crew.agents[0].tools) == [
+        "SafeScrapeWebsiteTool",
+        "SafeSerperDevTool",
+    ]
 
 
 def test_every_task_has_specific_expected_output(settings: Any) -> None:

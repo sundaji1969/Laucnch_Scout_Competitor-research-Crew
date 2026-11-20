@@ -23,6 +23,11 @@ market_research_task:
        as written, stating the unit, and add the per-unit figure only if the page states the
        plan size. Also record current offers or subscription plans and sales channels.
        Prefer competitors whose prices you can verify over ones with no visible pricing.
+       If the local_price_lookup tool is available, call it with "<name> {city}" for each
+       competitor. Swiggy and Zomato menus can't be read directly, so when no menu or
+       website price turns up, use the Google Maps price range it reports, written exactly
+       as "₹200–400 per person (Google Maps)", set price_value to null, and cite the Google
+       Maps link it gives. Only use a result whose name matches the competitor.
     4. Record the exact URL(s) where you found each fact in source_urls.
 
     Rules: you MUST use the search tool at least 3 times before answering; never answer

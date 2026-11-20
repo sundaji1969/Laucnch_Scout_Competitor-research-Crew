@@ -113,6 +113,10 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 - Result on the live site (Lighthouse 12.8.2, landing page): fonts 5 files / 136 KB → 3 files / 86 KB; mobile LCP 2.6 → 2.3-2.4 s; mobile Performance over five runs 92 / 98 / 97 / 98 / 98 (the 92 had a TBT spike to 280 ms, unrelated to fonts); CLS still 0; desktop 100.
 - Trade-off: characters outside latin + ₹ (for example some accented letters in competitor names) render in the system fallback font. Geist Mono still comes from next/font/google (latin only, not preloaded).
 
+## Delivery-app prices without scraping
+- Decision (with the owner, 20 Nov 2026): no headless-browser scraping of Swiggy or Zomato. Zomato's robots.txt disallows all crawlers but a few named search engines, both sites' terms of use likely forbid scraping, and an IP block would hit every app on the shared VPS.
+- Instead the Market Researcher gets `local_price_lookup`: Serper's Places endpoint, which returns Google Maps' typical price per person (`priceLevel`, e.g. "₹200–400") plus rating, review count, category, address and a `google.com/maps?cid=` link to cite. It also keeps reading prices from Swiggy/Zomato search snippets (e.g. "Costs: 189 rupees"), which the prompt already asked for.
+- Each result is one line with the business name first, so provenance's name-proximity check ties a price to the right business; a range copied onto a different competitor fails it (tested). Same rules as the other tools: never raises, Redis cache, counted in `search_calls`. `PLACES_LOOKUP_ENABLED` (default true) turns it off; each lookup costs one Serper credit.
+
 ## Known follow-ups
-- Aggregator-only markets (Swiggy/Zomato) still yield few prices; a Playwright scrape tool behind a flag remains the plan.
 - Stretch goals not started: hierarchical process (flag exists, `PROCESS_MODE=hierarchical`), Pitch Deck agent, weekly re-run.

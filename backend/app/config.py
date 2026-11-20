@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     serper_results: int = 6
     # Cache identical Serper queries in Redis (0 = off)
     search_cache_ttl_seconds: int = 86_400
+    # Give the Market Researcher a Google Maps price lookup (Serper Places, no scraping)
+    places_lookup_enabled: bool = True
 
     # Crew
     process_mode: str = "sequential"

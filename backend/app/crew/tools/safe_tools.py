@@ -14,10 +14,14 @@ import contextlib
 import hashlib
 import json
 import logging
+import os
 import re
 from typing import Any
 
+import httpx
+from crewai.tools import BaseTool
 from crewai_tools import ScrapeWebsiteTool, SerperDevTool
+from pydantic import BaseModel, Field
 
 from app.crew import provenance
 
@@ -110,6 +114,109 @@ class SafeScrapeWebsiteTool(ScrapeWebsiteTool):  # type: ignore[misc]
         return text
 
 
+class PlacesQuery(BaseModel):
+    query: str = Field(..., description='Business name and city, e.g. "Millet Life Coimbatore"')
+
+
+class LocalPriceTool(BaseTool):  # type: ignore[misc]
+    """Google Maps facts for a local business, via Serper's Places endpoint (no scraping).
+
+    Many food businesses sell only through Swiggy/Zomato, whose menus can't be read without
+    a browser (and whose terms forbid scraping). Google Maps publishes a typical price per
+    person for most of them ("₹200–400"), plus rating and review count. Each result line
+    keeps the business name next to its price, so provenance can tie the price to the
+    business, and a Google Maps link the report can cite.
+    """
+
+    name: str = "local_price_lookup"
+    description: str = (
+        "Look up a local business on Google Maps. Returns up to 5 matches, each with its "
+        "typical price per person (Google's price range, mainly for food places), rating, "
+        "review count, category, address, website and a Google Maps link you can cite. "
+        'Input: the business name and city, e.g. "Millet Life Coimbatore".'
+    )
+    args_schema: type[BaseModel] = PlacesQuery
+    api_key: str = ""
+    country: str = "in"
+    locale: str = "en"
+    cache_ttl: int = 0
+    redis_url: str = ""
+    endpoint: str = "https://google.serper.dev/places"
+
+    def _cache(self) -> Any | None:
+        if not (self.cache_ttl and self.redis_url):
+            return None
+        try:
+            import redis
+
+            return redis.Redis.from_url(self.redis_url, socket_timeout=2, socket_connect_timeout=2)
+        except Exception:  # noqa: BLE001 - cache is optional
+            return None
+
+    def _run(self, query: str = "", **_: Any) -> str:
+        query = str(query).strip()[:200]
+        if not query:
+            return "Give a business name and city, e.g. 'Millet Life Coimbatore'."
+        provenance.record_search()
+        key = (
+            "launchscout:places:"
+            + hashlib.sha256(json.dumps([query, self.country, self.locale]).encode()).hexdigest()
+        )
+        cache = self._cache()
+        if cache is not None:
+            with contextlib.suppress(Exception):
+                hit = cache.get(key)
+                if hit:
+                    text = hit.decode() if isinstance(hit, bytes) else str(hit)
+                    provenance.record_text(text, kind="places", ref=query)
+                    return text
+        api_key = self.api_key or os.environ.get("SERPER_API_KEY", "")
+        try:
+            resp = httpx.post(
+                self.endpoint,
+                json={"q": query, "gl": self.country, "hl": self.locale},
+                headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+                timeout=20,
+            )
+            resp.raise_for_status()
+            places = resp.json().get("places") or []
+        except Exception as exc:  # noqa: BLE001 - tools must not crash the crew
+            log.warning("places_failed", extra={"error": str(exc)[:300], "query": query})
+            return (
+                f"PLACES LOOKUP FAILED ({type(exc).__name__}). "
+                "Use web search results for this business instead."
+            )
+        text = format_places(query, places)
+        provenance.record_text(text, kind="places", ref=query)
+        if cache is not None:
+            with contextlib.suppress(Exception):
+                cache.setex(key, self.cache_ttl, text)
+        return text
+
+
+def format_places(query: str, places: list[dict[str, Any]], limit: int = 5) -> str:
+    """One line per place, name first, so a price always sits next to its business."""
+    if not places:
+        return f"No Google Maps listing found for '{query}'. Try a shorter name or web search."
+    lines = [f"Google Maps results for '{query}':"]
+    for i, p in enumerate(places[:limit], 1):
+        title = str(p.get("title") or "Unknown")
+        price = p.get("priceLevel")
+        parts = [f"{i}. {title}"]
+        parts.append(f"price {price} per person (Google Maps)" if price else "price not shown on Google Maps")
+        if p.get("rating") is not None:
+            parts.append(f"rating {p['rating']} ({p.get('ratingCount', 0)} reviews)")
+        for field in ("category", "address"):
+            if p.get(field):
+                parts.append(str(p[field]))
+        if p.get("cid"):
+            parts.append(f"maps: https://www.google.com/maps?cid={p['cid']}")
+        if p.get("website"):
+            parts.append(f"website: {p['website']}")
+        lines.append(" | ".join(parts))
+    return "\n".join(lines)
+
+
 def _as_text(result: Any) -> str:
     if isinstance(result, str):
         return result
@@ -135,3 +242,15 @@ def search_tool(
 
 def scrape_tool(max_chars: int = DEFAULT_SCRAPE_CHARS) -> SafeScrapeWebsiteTool:
     return SafeScrapeWebsiteTool(max_chars=max_chars)
+
+
+def places_tool(
+    api_key: str = "",
+    country: str = "in",
+    locale: str = "en",
+    cache_ttl: int = 0,
+    redis_url: str = "",
+) -> LocalPriceTool:
+    return LocalPriceTool(
+        api_key=api_key, country=country, locale=locale, cache_ttl=cache_ttl, redis_url=redis_url
+    )

@@ -11,7 +11,7 @@ from crewai_tools import FileWriterTool
 from app.config import Settings, get_settings
 from app.crew.guardrails import competitor_list_guardrail, review_insights_guardrail
 from app.crew.schemas import CompetitorList, ReviewInsights, StrategyMatrix
-from app.crew.tools.safe_tools import scrape_tool, search_tool
+from app.crew.tools.safe_tools import places_tool, scrape_tool, search_tool
 
 
 def build_llm(settings: Settings, model: str | None = None) -> LLM:
@@ -53,12 +53,27 @@ class LaunchScoutCrew:
             scrape_tool(max_chars=s.scrape_max_chars),
         ]
 
+    def _price_tools(self) -> list[Any]:
+        """Google Maps price ranges for local businesses (Swiggy/Zomato menus aren't readable)."""
+        s = self.settings
+        if not s.places_lookup_enabled:
+            return []
+        return [
+            places_tool(
+                api_key=s.serper_api_key,
+                country=s.serper_country,
+                locale=s.serper_locale,
+                cache_ttl=s.search_cache_ttl_seconds,
+                redis_url=s.redis_url,
+            )
+        ]
+
     # ------------------------------------------------------------------ agents
     @agent
     def market_researcher(self) -> Agent:
         return Agent(
             config=self.agents_config["market_researcher"],  # type: ignore[index]
-            tools=self._research_tools(),
+            tools=self._research_tools() + self._price_tools(),
             llm=self.research_llm,
             allow_delegation=False,
             max_iter=self.settings.agent_max_iter,
