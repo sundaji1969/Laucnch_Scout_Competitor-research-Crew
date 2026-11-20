@@ -139,12 +139,14 @@ export function PriceChart({ strategy }: { strategy: Strategy }) {
                 return (
                   <g>
                     <circle cx={cx} cy={cy} r={5} fill="var(--chart-2)" />
+                    {/* A range bar runs through the space to the right, so its label sits above the point. */}
                     <text
-                      x={cx + 9}
-                      y={cy + payload.dy}
+                      x={payload.range ? cx : cx + 9}
+                      y={payload.range ? cy - 13 : cy + payload.dy}
                       fontSize={12}
                       fill="var(--fg)"
                       dominantBaseline="middle"
+                      textAnchor={payload.range ? "middle" : "start"}
                     >
                       {payload.short}
                     </text>
