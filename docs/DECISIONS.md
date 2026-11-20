@@ -87,8 +87,11 @@ A running log of decisions made while building LaunchScout. Newest at the bottom
 - Production model: `openai/gpt-4.1` (the OpenAI key was the one available). Two live runs: Coimbatore millet meal boxes (86 s, 417k tokens, 4 competitors, 9 sources) and Pune mobile pet grooming (95 s, 341k tokens, 5 competitors, 7 sources). Both have all six sections, saved `report.md` and `result.json`, and working MD and PDF downloads.
 - GitHub `VPS_SSH_KEY` was corrupted when pasted through the browser ("error in libcrypto"); re-set from the file with `gh secret set < keyfile`. The workflow now strips CR and validates the key with `ssh-keygen -y` before using it.
 
+## Daily run cap
+- `DAILY_RUN_CAP` (default 30, 0 = off) limits new runs per UTC day across all visitors. It is an atomic Redis `INCR` on `launchscout:daily_runs:YYYYMMDD` (2-day TTL), so simultaneous requests can't overshoot it the way a database count could. It is checked before the per-IP limiter so a refusal doesn't use up the visitor's own quota, and the slot is given back if a later check (rate limit, busy) rejects the request. Refusals are HTTP 429 with `Retry-After` until midnight UTC and a message the form shows as-is.
+
 ## Known follow-ups
-- `DAILY_RUN_CAP` and `REUSE_WINDOW_DAYS` are defined in settings but not enforced anywhere yet. Rate limiting per IP (`RATE_LIMIT_RUNS`) and `MAX_CONCURRENT_RUNS` are the active cost guards.
+- `REUSE_WINDOW_DAYS` is defined in settings but not enforced yet (serve a recent report for the same idea + city + customer instead of a new run).
 - The price-vs-differentiation chart skips competitors whose price is a range (e.g. "₹200-₹400"), but its caption calls them "without a public price". Parse ranges (plot the midpoint) or reword the caption.
 - Aggregator-only markets (Swiggy/Zomato) still yield few prices; a Playwright scrape tool behind a flag remains the plan.
 - Lighthouse not yet re-measured on the live Linux deploy.

@@ -143,6 +143,46 @@ def test_busy_cap(client: TestClient, env: dict[str, Any]) -> None:
     assert r.status_code == 503
 
 
+def _daily_count(client: TestClient) -> int:
+    async def get() -> int:
+        redis = client.app.state.redis  # type: ignore[attr-defined]
+        return sum([int(await redis.get(k)) for k in await redis.keys("launchscout:daily_runs:*")])
+
+    return client.portal.call(get)  # type: ignore[union-attr]
+
+
+def test_daily_run_cap(client: TestClient, env: dict[str, Any]) -> None:
+    env["settings"].daily_run_cap = 2
+    codes = [client.post("/api/runs", json=BODY).status_code for _ in range(2)]
+    r = client.post("/api/runs", json=BODY)
+    assert codes == [202, 202]
+    assert r.status_code == 429
+    assert "today's limit of 2 reports" in r.json()["detail"]
+    assert 0 < int(r.headers["Retry-After"]) <= 86_400
+    assert len(client.enqueued) == 2  # type: ignore[attr-defined]
+    assert _daily_count(client) == 2  # the refused request did not take a slot
+
+
+def test_daily_cap_refusal_does_not_use_ip_quota(client: TestClient, env: dict[str, Any]) -> None:
+    env["settings"].daily_run_cap = 1
+    assert client.post("/api/runs", json=BODY).status_code == 202
+    assert client.post("/api/runs", json=BODY).status_code == 429  # daily cap, not the IP limit
+    env["settings"].daily_run_cap = 3  # cap raised: this IP still has 2 of its 3/hour left
+    assert [client.post("/api/runs", json=BODY).status_code for _ in range(3)] == [202, 202, 429]
+
+
+def test_slot_returned_when_request_is_rejected_later(client: TestClient, env: dict[str, Any]) -> None:
+    env["settings"].daily_run_cap = 5
+    test_busy_cap(client, env)  # 503 from the busy check, after the slot was reserved
+    assert _daily_count(client) == 0
+
+
+def test_daily_cap_zero_means_unlimited(client: TestClient, env: dict[str, Any]) -> None:
+    env["settings"].daily_run_cap = 0
+    assert client.post("/api/runs", json=BODY).status_code == 202
+    assert _daily_count(client) == 0
+
+
 def test_unknown_run_404(client: TestClient) -> None:
     assert client.get("/api/runs/doesnotexist").status_code == 404
     assert client.get("/api/runs/..%2Fetc").status_code == 404

@@ -7,6 +7,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
@@ -29,6 +30,7 @@ router = APIRouter(prefix="/api")
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ACTIVE = (RunStatus.queued, RunStatus.running)
+BUSY_MESSAGE = "LaunchScout is busy right now. Please try again in a few minutes."
 
 
 def _summary(run: Run) -> RunSummary:
@@ -92,6 +94,37 @@ async def health(request: Request, session: SessionDep, response: Response) -> H
     return Health(status="ok" if ok else "degraded", checks=checks)
 
 
+async def _reserve_daily_slot(request: Request, settings: Settings) -> str | None:
+    """Take one of today's DAILY_RUN_CAP slots (all users, UTC day), or raise 429.
+
+    An atomic Redis INCR, so concurrent requests can't overshoot the cap. Returns the
+    counter key so the caller can give the slot back if the request fails a later check.
+    """
+    cap = settings.daily_run_cap
+    if cap <= 0:
+        return None
+    now = datetime.now(UTC)
+    key = f"launchscout:daily_runs:{now:%Y%m%d}"
+    redis = request.app.state.redis
+    used = await redis.incr(key)
+    if used == 1:
+        await redis.expire(key, 2 * 86_400)
+    if used > cap:
+        await redis.decr(key)
+        reset = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        retry = max(1, int((reset - now).total_seconds()))
+        log.warning("daily_run_cap_reached", extra={"cap": cap})
+        raise HTTPException(
+            429,
+            detail=(
+                f"LaunchScout has reached today's limit of {cap} reports. "
+                f"New research opens again in about {retry // 3600 + 1} hours (midnight UTC)."
+            ),
+            headers={"Retry-After": str(retry)},
+        )
+    return key
+
+
 @router.post("/runs", response_model=RunCreated, status_code=202)
 async def create_run(
     body: RunCreate, request: Request, session: SessionDep, settings: SettingsDep
@@ -101,11 +134,16 @@ async def create_run(
     for field, value in (("business_idea", body.business_idea), ("target_customer", body.target_customer)):
         if len(value) > settings.max_input_chars:
             raise HTTPException(422, detail=f"{field} is longer than {settings.max_input_chars} characters")
-    await request.app.state.rate_limiter.check(ip_hash(ip))
-
-    active = await session.scalar(select(func.count()).select_from(Run).where(Run.status.in_(ACTIVE)))
-    if (active or 0) >= settings.max_concurrent_runs * 3:
-        raise HTTPException(503, detail="LaunchScout is busy right now. Please try again in a few minutes.")
+    day_key = await _reserve_daily_slot(request, settings)
+    try:
+        await request.app.state.rate_limiter.check(ip_hash(ip))
+        active = await session.scalar(select(func.count()).select_from(Run).where(Run.status.in_(ACTIVE)))
+        if (active or 0) >= settings.max_concurrent_runs * 3:
+            raise HTTPException(503, detail=BUSY_MESSAGE)
+    except HTTPException:
+        if day_key:  # rejected for another reason: give the day's slot back
+            await request.app.state.redis.decr(day_key)
+        raise
 
     run = Run(
         id=uuid.uuid4().hex[:16],
