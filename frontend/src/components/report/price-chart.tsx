@@ -2,6 +2,7 @@
 
 import {
   CartesianGrid,
+  ErrorBar,
   ReferenceLine,
   ResponsiveContainer,
   Scatter,
@@ -20,6 +21,8 @@ interface Point {
   /** Ends of a published price range, drawn as a horizontal bar. */
   low?: number;
   high?: number;
+  /** [below, above] the plotted price, for Recharts' ErrorBar; absent for single prices. */
+  range?: [number, number];
   diff: number;
   label: string;
 }
@@ -38,6 +41,7 @@ export function PriceChart({ strategy }: { strategy: Strategy }) {
       price: p.value,
       low: p.low,
       high: p.high,
+      range: p.low !== undefined && p.high !== undefined ? [p.value - p.low, p.high - p.value] : undefined,
       diff: r.differentiation_score,
       label: r.price_per_unit,
     });
@@ -131,26 +135,9 @@ export function PriceChart({ strategy }: { strategy: Strategy }) {
               isAnimationActive={false}
               shape={(props: unknown) => {
                 // Point + label drawn together so the collision offset (dy) is applied reliably.
-                const { cx, cy, payload, xAxis } = props as {
-                  cx: number;
-                  cy: number;
-                  payload: (typeof labelled)[number];
-                  xAxis?: { scale?: (v: number) => number };
-                };
-                const scale = xAxis?.scale;
-                const range =
-                  scale && payload.low !== undefined && payload.high !== undefined
-                    ? { x1: scale(payload.low), x2: scale(payload.high) }
-                    : null;
+                const { cx, cy, payload } = props as { cx: number; cy: number; payload: (typeof labelled)[number] };
                 return (
                   <g>
-                    {range && (
-                      <g stroke="var(--chart-2)" strokeOpacity={0.55} strokeWidth={2}>
-                        <line x1={range.x1} x2={range.x2} y1={cy} y2={cy} />
-                        <line x1={range.x1} x2={range.x1} y1={cy - 4} y2={cy + 4} />
-                        <line x1={range.x2} x2={range.x2} y1={cy - 4} y2={cy + 4} />
-                      </g>
-                    )}
                     <circle cx={cx} cy={cy} r={5} fill="var(--chart-2)" />
                     <text
                       x={cx + 9}
@@ -164,7 +151,11 @@ export function PriceChart({ strategy }: { strategy: Strategy }) {
                   </g>
                 );
               }}
-            />
+            >
+              {hasRange && (
+                <ErrorBar dataKey="range" direction="x" width={6} strokeWidth={2} stroke="var(--chart-2)" strokeOpacity={0.55} />
+              )}
+            </Scatter>
           </ScatterChart>
         </ResponsiveContainer>
       </div>
